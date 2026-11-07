@@ -1,0 +1,65 @@
+name: Release
+
+# Push a tag like v0.1.0 to build the installer and publish it.
+# Installed copies of the app update themselves from these GitHub releases.
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Version from tag
+        id: v
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart('v')
+          if ($ver -notmatch '^\d+\.\d+\.\d+$') { throw "Tag must look like v1.2.3" }
+          "version=$ver" >> $env:GITHUB_OUTPUT
+
+      - name: Test
+        run: dotnet test tests/PcMax.Core.Tests -c Release
+
+      - name: Publish app
+        run: >
+          dotnet publish src/PcMax.App/PcMax.App.csproj -c Release -r win-x64 --self-contained true
+          -p:Version=${{ steps.v.outputs.version }} -o publish
+
+      - name: Add PresentMon (frame-time capture, MIT licence)
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo GameTechDev/PresentMon --pattern "PresentMon-*-x64.exe" --dir pm
+          $exe = Get-ChildItem pm -Filter "PresentMon-*-x64.exe" | Where-Object { $_.Name -notmatch "Service|Capture" } | Select-Object -First 1
+          if ($exe) { Copy-Item $exe.FullName publish/PresentMon.exe }
+
+      - name: Install Velopack CLI
+        run: dotnet tool install -g vpk --version 1.2.161
+
+      - name: Download previous release (for delta updates)
+        continue-on-error: true
+        run: vpk download github --repoUrl ${{ github.server_url }}/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pack installer
+        run: >
+          vpk pack --packId PcMax --packVersion ${{ steps.v.outputs.version }} --packDir publish
+          --mainExe PcMax.exe --packTitle "PC Max" --packAuthors "PC Max"
+          --icon src/PcMax.App/Assets/pcmax.ico
+
+      - name: Publish GitHub release
+        run: >
+          vpk upload github --repoUrl ${{ github.server_url }}/${{ github.repository }}
+          --publish --releaseName "PC Max ${{ steps.v.outputs.version }}" --tag ${{ github.ref_name }}
+          --token ${{ secrets.GITHUB_TOKEN }}

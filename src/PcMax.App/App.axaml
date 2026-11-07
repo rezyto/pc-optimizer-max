@@ -1,0 +1,34 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PcMax.App.ViewModels"
+             x:Class="PcMax.App.App"
+             x:DataType="vm:TrayViewModel"
+             Name="PC Max"
+             RequestedThemeVariant="Dark">
+  <Application.Styles>
+    <FluentTheme>
+      <FluentTheme.Palettes>
+        <ColorPaletteResources x:Key="Dark" Accent="#FF00C8F0" RegionColor="#FF0B0D17" ChromeMediumLow="#FF141829" />
+      </FluentTheme.Palettes>
+    </FluentTheme>
+    <StyleInclude Source="avares://PcMax/Styles/Theme.axaml" />
+  </Application.Styles>
+
+  <TrayIcon.Icons>
+    <TrayIcons>
+      <TrayIcon Icon="/Assets/pcmax.ico" ToolTipText="{Binding ToolTip}" Command="{Binding OpenCommand}">
+        <TrayIcon.Menu>
+          <NativeMenu>
+            <NativeMenuItem Header="Abrir" Command="{Binding OpenCommand}" />
+            <NativeMenuItem Header="Modo jogo automático" ToggleType="CheckBox"
+                            IsChecked="{Binding AutoGameMode, Mode=OneWay}"
+                            Command="{Binding ToggleAutoGameModeCommand}" />
+            <NativeMenuItemSeparator />
+            <NativeMenuItem Header="Reverter tudo" Command="{Binding RevertAllCommand}" />
+            <NativeMenuItem Header="Sair" Command="{Binding ExitCommand}" />
+          </NativeMenu>
+        </TrayIcon.Menu>
+      </TrayIcon>
+    </TrayIcons>
+  </TrayIcon.Icons>
+</Application>

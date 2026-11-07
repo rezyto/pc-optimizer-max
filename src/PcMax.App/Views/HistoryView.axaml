@@ -1,0 +1,82 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PcMax.App.ViewModels"
+             xmlns:v="using:PcMax.App.Views"
+             x:Class="PcMax.App.Views.HistoryView"
+             x:DataType="vm:HistoryViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="36,18,36,36" Spacing="16">
+      <Border Classes="card" Padding="22,20">
+        <StackPanel Spacing="14">
+          <DockPanel>
+            <Button DockPanel.Dock="Right" Classes="danger" Command="{Binding RevertAllCommand}" VerticalAlignment="Center" Padding="18,10">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <PathIcon Width="14" Height="14" Data="{StaticResource Icon.Undo}" Foreground="#FF8FA0" />
+                <TextBlock Text="Reverter tudo" />
+              </StackPanel>
+            </Button>
+            <StackPanel Spacing="4" Margin="0,0,20,0">
+              <TextBlock Classes="h2" Text="Ajustes ativos" />
+              <TextBlock Classes="muted" Text="Cada ajuste guardou o estado anterior do teu PC. Reverter repõe exatamente o que lá estava." />
+            </StackPanel>
+          </DockPanel>
+          <TextBlock Text="{Binding Message}" FontWeight="SemiBold" Foreground="{StaticResource CyanBrush}"
+                     IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <Border Classes="inset" Padding="16,14" IsVisible="{Binding !HasActive}">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <PathIcon Width="16" Height="16" Data="{StaticResource Icon.Check}" Foreground="{StaticResource GoodBrush}" />
+              <TextBlock Text="Nenhum ajuste ativo: o teu PC está exatamente como estava." Classes="muted" VerticalAlignment="Center" />
+            </StackPanel>
+          </Border>
+          <ItemsControl ItemsSource="{Binding Active}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ActiveTweakViewModel">
+                <Border Classes="inset" Margin="0,0,0,8" Padding="16,12">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Spacing="3" Margin="0,0,16,0">
+                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14" />
+                      <TextBlock Text="{Binding Description}" Classes="muted" FontSize="12.5" />
+                      <TextBlock FontSize="11.5" Foreground="{StaticResource FaintBrush}">
+                        <Run Text="{Binding Since}" /><Run Text=" · " /><Run Text="{Binding Scope}" />
+                      </TextBlock>
+                    </StackPanel>
+                    <Button Grid.Column="1" Classes="ghost" Command="{Binding RevertCommand}" VerticalAlignment="Center">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <PathIcon Width="12" Height="12" Data="{StaticResource Icon.Undo}" />
+                        <TextBlock Text="Reverter" />
+                      </StackPanel>
+                    </Button>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card" Padding="22,20">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="h2" Text="Registo de alterações" />
+          <TextBlock Classes="muted" Text="Ainda não foi feita nenhuma alteração nesta sessão." IsVisible="{Binding !HasEntries}" />
+          <ItemsControl ItemsSource="{Binding Entries}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:HistoryItem">
+                <Grid ColumnDefinitions="130,140,*" Margin="0,6">
+                  <TextBlock Text="{Binding When}" Classes="muted" FontSize="12.5" VerticalAlignment="Center" />
+                  <Border Grid.Column="1" Classes="badge"
+                          Background="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}, ConverterParameter=soft}">
+                    <TextBlock Text="{Binding ActionLabel}" Foreground="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
+                  </Border>
+                  <TextBlock Grid.Column="2" TextWrapping="Wrap" VerticalAlignment="Center" FontSize="13">
+                    <Run Text="{Binding Name}" FontWeight="SemiBold" />
+                    <Run Text="{Binding Detail}" Foreground="{StaticResource MutedBrush}" />
+                  </TextBlock>
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

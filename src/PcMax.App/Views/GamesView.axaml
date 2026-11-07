@@ -1,0 +1,140 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PcMax.App.ViewModels"
+             x:Class="PcMax.App.Views.GamesView"
+             x:DataType="vm:GamesViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="36,18,36,36" Spacing="16">
+      <Border Classes="card" Padding="22,18">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Classes="primary" Command="{Binding AddGameCommand}" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <PathIcon Width="13" Height="13" Data="{StaticResource Icon.Plus}" Foreground="#0B0D17" />
+              <TextBlock Text="Adicionar jogo (.exe)" Foreground="#0B0D17" FontWeight="Bold" />
+            </StackPanel>
+          </Button>
+          <StackPanel Spacing="4" Margin="0,0,20,0">
+            <TextBlock Classes="h2" Text="Modo jogo por jogo" />
+            <TextBlock Classes="muted" Text="Os jogos populares são detetados sozinhos com o perfil padrão. Personaliza um jogo para escolher o que muda quando o abres." />
+            <TextBlock Text="{Binding Message}" FontSize="12.5" Foreground="{StaticResource GoodBrush}" Margin="0,4,0,0"
+                       IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
+
+      <!-- Running now, without profile -->
+      <ItemsControl ItemsSource="{Binding RunningWithoutProfile}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:RunningGameItem">
+            <Border Classes="card" Padding="18,12" Margin="0,0,0,10" BorderBrush="#5522D39A">
+              <DockPanel>
+                <Button DockPanel.Dock="Right" Classes="ghost" Content="Personalizar"
+                        Command="{Binding $parent[ItemsControl].((vm:GamesViewModel)DataContext).CustomizeCommand}"
+                        CommandParameter="{Binding}" />
+                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                  <Ellipse Width="8" Height="8" Fill="{StaticResource GoodBrush}" VerticalAlignment="Center" />
+                  <TextBlock Text="{Binding Name}" Classes="h3" />
+                  <TextBlock Text="a correr agora · perfil padrão" Classes="muted" VerticalAlignment="Center" />
+                </StackPanel>
+              </DockPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+      <TextBlock Text="OS TEUS PERFIS" Classes="caps" IsVisible="{Binding HasProfiles}" />
+      <ItemsControl ItemsSource="{Binding Profiles}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate><StackPanel Spacing="12" /></ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:GameProfileViewModel">
+            <Border Classes="card" Padding="20,16">
+              <StackPanel Spacing="12">
+                <DockPanel>
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <TextBlock Text="Ativo" Classes="muted" VerticalAlignment="Center" />
+                    <ToggleSwitch IsChecked="{Binding Enabled}" />
+                    <Button Classes="icon" Command="{Binding RemoveCommand}" ToolTip.Tip="Remover perfil">
+                      <PathIcon Width="13" Height="13" Data="{StaticResource Icon.Close}" Foreground="{StaticResource MutedBrush}" />
+                    </Button>
+                  </StackPanel>
+                  <StackPanel Orientation="Horizontal" Spacing="14">
+                    <Border Width="44" Height="44" CornerRadius="10" Background="{StaticResource AccentGradient}">
+                      <TextBlock Text="{Binding Initials}" Foreground="#0B0D17" FontWeight="Bold" FontSize="16"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel VerticalAlignment="Center" Spacing="2">
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="{Binding DisplayName}" Classes="h2" />
+                        <Border Classes="badge" Background="#1A22D39A" IsVisible="{Binding IsRunning}">
+                          <TextBlock Text="A correr" Foreground="{StaticResource GoodBrush}" />
+                        </Border>
+                      </StackPanel>
+                      <TextBlock Text="{Binding ExecutableName}" Classes="muted" FontSize="12" />
+                    </StackPanel>
+                  </StackPanel>
+                </DockPanel>
+
+                <WrapPanel Orientation="Horizontal">
+                  <Border Classes="inset" Margin="0,0,10,8">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                      <ToggleSwitch IsChecked="{Binding HighPriority}" VerticalAlignment="Center" />
+                      <TextBlock Text="Prioridade alta para o jogo" VerticalAlignment="Center" FontSize="13" />
+                    </StackPanel>
+                  </Border>
+                  <Border Classes="inset" Margin="0,0,10,8">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                      <ToggleSwitch IsChecked="{Binding SuspendBackgroundApps}" VerticalAlignment="Center" />
+                      <TextBlock Text="Pausar apps em segundo plano" VerticalAlignment="Center" FontSize="13" />
+                    </StackPanel>
+                  </Border>
+                </WrapPanel>
+
+                <Expander Header="Ajustes durante o jogo" IsExpanded="{Binding IsExpanded}" HorizontalAlignment="Stretch">
+                  <ItemsControl ItemsSource="{Binding Tweaks}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:GameTweakViewModel">
+                        <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,6">
+                          <CheckBox IsChecked="{Binding IsSelected}" VerticalAlignment="Top" />
+                          <StackPanel Grid.Column="1" Margin="4,4,16,0" Spacing="2">
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13.5" />
+                            <TextBlock Text="{Binding Description}" Classes="muted" FontSize="12.5" />
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0"
+                                        IsVisible="{Binding TestProgress, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                              <ProgressBar IsIndeterminate="True" Width="80" Height="4" MinHeight="4" VerticalAlignment="Center" />
+                              <TextBlock Text="{Binding TestProgress}" FontSize="12" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding TestResult}" FontSize="12.5" Foreground="{StaticResource CyanBrush}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       IsVisible="{Binding TestResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                          </StackPanel>
+                          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+                            <Button Classes="ghost" Content="Cancelar" Command="{Binding TestCancelCommand}" IsVisible="{Binding TestCommand.IsRunning}" />
+                            <Button Classes="ghost" Content="Testar ganho" Command="{Binding TestCommand}"
+                                    ToolTip.Tip="Abre o jogo para poderes medir os FPS antes e depois" />
+                          </StackPanel>
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </Expander>
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+      <Border Classes="card" Padding="18,14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <PathIcon Width="16" Height="16" Data="{StaticResource Icon.Info}" Foreground="{StaticResource InfoBrush}" VerticalAlignment="Top" />
+          <TextBlock Classes="muted" Text="{Binding CaptureNote}" MaxWidth="820" />
+        </StackPanel>
+      </Border>
+
+      <StackPanel Spacing="8">
+        <TextBlock Text="DETETADOS AUTOMATICAMENTE" Classes="caps" />
+        <TextBlock Classes="muted" FontSize="12.5" Text="{Binding KnownGamesText}" LineHeight="20" />
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

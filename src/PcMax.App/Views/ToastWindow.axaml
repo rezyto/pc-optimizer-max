@@ -1,0 +1,37 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:PcMax.App.ViewModels"
+        xmlns:v="using:PcMax.App.Views"
+        x:Class="PcMax.App.Views.ToastWindow"
+        x:DataType="vm:ToastViewModel"
+        Title="PC Max"
+        Width="380" SizeToContent="Height"
+        SystemDecorations="None" CanResize="False"
+        Topmost="True" ShowInTaskbar="False" ShowActivated="False"
+        Background="Transparent" TransparencyLevelHint="Transparent"
+        Cursor="Hand">
+  <Border Margin="6" CornerRadius="14" Background="#F0161A2C" BorderThickness="1"
+          BorderBrush="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}, ConverterParameter=border}"
+          BoxShadow="0 8 24 0 #80000000" ClipToBounds="True">
+    <Grid ColumnDefinitions="4,*">
+      <Border Grid.Column="0" Background="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
+      <Grid Grid.Column="1" ColumnDefinitions="Auto,*,Auto" Margin="14,14,10,14">
+        <Border Width="34" Height="34" CornerRadius="17" VerticalAlignment="Top"
+                Background="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}, ConverterParameter=soft}">
+          <PathIcon Width="17" Height="17" Data="{Binding Icon, Converter={x:Static v:IconKeyConverter.Instance}}"
+                    Foreground="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
+        </Border>
+        <StackPanel Grid.Column="1" Margin="12,0,6,0" Spacing="3">
+          <TextBlock Text="{Binding Label}" Classes="caps" FontSize="10"
+                     Foreground="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
+          <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14.5" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding Message}" Classes="muted" FontSize="12.5" />
+          <TextBlock Text="{Binding Hint}" FontSize="11.5" Foreground="{StaticResource FaintBrush}" IsVisible="{Binding IsSticky}" Margin="0,2,0,0" />
+        </StackPanel>
+        <Button Grid.Column="2" Classes="icon" VerticalAlignment="Top" Click="OnCloseClick" Padding="4">
+          <PathIcon Width="11" Height="11" Data="{StaticResource Icon.Close}" Foreground="{StaticResource MutedBrush}" />
+        </Button>
+      </Grid>
+    </Grid>
+  </Border>
+</Window>

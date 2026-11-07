@@ -1,0 +1,119 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PcMax.App.ViewModels"
+             xmlns:v="using:PcMax.App.Views"
+             xmlns:c="using:PcMax.App.Controls"
+             x:Class="PcMax.App.Views.NetworkView"
+             x:DataType="vm:NetworkViewModel">
+  <UserControl.Styles>
+    <Style Selector="Border.stat">
+      <Setter Property="Background" Value="{StaticResource InsetBrush}" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="16,12" />
+      <Setter Property="Margin" Value="0,0,10,0" />
+    </Style>
+  </UserControl.Styles>
+  <ScrollViewer>
+    <StackPanel Margin="36,18,36,36" Spacing="16">
+      <!-- Ping test -->
+      <Border Classes="card" Padding="22,20">
+        <StackPanel Spacing="16">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+              <Button Classes="ghost" Content="Cancelar" Command="{Binding TestCancelCommand}" IsVisible="{Binding TestCommand.IsRunning}" />
+              <Button Classes="primary" Content="Testar ligação" Command="{Binding TestCommand}" />
+            </StackPanel>
+            <StackPanel Spacing="4" Margin="0,0,20,0">
+              <TextBlock Classes="h2" Text="Teste de ping" />
+              <TextBlock Classes="muted" Text="Enviamos 30 pings e medimos a média, a variação (jitter), as perdas e os picos." />
+            </StackPanel>
+          </DockPanel>
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <TextBlock Text="Servidor:" VerticalAlignment="Center" Classes="muted" />
+            <ComboBox ItemsSource="{Binding HostOptions}" SelectedItem="{Binding SelectedHost}" MinWidth="220">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:HostOption"><TextBlock Text="{Binding Label}" /></DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBox Text="{Binding CustomHost}" Watermark="ex.: 185.40.64.65" Width="220" IsVisible="{Binding IsCustom}" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding TestCommand.IsRunning}">
+            <ProgressBar IsIndeterminate="True" Width="160" Height="4" MinHeight="4" VerticalAlignment="Center" />
+            <TextBlock Text="A testar (cerca de 8 segundos)…" FontSize="12.5" />
+          </StackPanel>
+          <TextBlock Text="{Binding PingError}" Foreground="{StaticResource CritBrush}"
+                     IsVisible="{Binding PingError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+          <StackPanel Spacing="14" IsVisible="{Binding HasResult}">
+            <Grid ColumnDefinitions="*,*,*,*,Auto" Margin="0,0,-10,0">
+              <Border Classes="stat" Grid.Column="0">
+                <StackPanel Spacing="2"><TextBlock Text="PING MÉDIO" Classes="caps" FontSize="10" /><TextBlock Text="{Binding Average}" Classes="value" FontSize="22" /></StackPanel>
+              </Border>
+              <Border Classes="stat" Grid.Column="1">
+                <StackPanel Spacing="2"><TextBlock Text="JITTER" Classes="caps" FontSize="10" /><TextBlock Text="{Binding Jitter}" Classes="value" FontSize="22" /></StackPanel>
+              </Border>
+              <Border Classes="stat" Grid.Column="2">
+                <StackPanel Spacing="2"><TextBlock Text="PERDAS" Classes="caps" FontSize="10" /><TextBlock Text="{Binding Loss}" Classes="value" FontSize="22" /></StackPanel>
+              </Border>
+              <Border Classes="stat" Grid.Column="3">
+                <StackPanel Spacing="2"><TextBlock Text="PICOS (P95)" Classes="caps" FontSize="10" /><TextBlock Text="{Binding P95}" Classes="value" FontSize="22" /></StackPanel>
+              </Border>
+              <Border Classes="stat" Grid.Column="4" MinWidth="150"
+                      Background="{Binding QualityTone, Converter={x:Static v:ToneToBrushConverter.Instance}, ConverterParameter=soft}">
+                <StackPanel Spacing="2">
+                  <TextBlock Text="QUALIDADE" Classes="caps" FontSize="10" />
+                  <TextBlock Text="{Binding QualityLabel}" Classes="value" FontSize="22"
+                             Foreground="{Binding QualityTone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
+                </StackPanel>
+              </Border>
+            </Grid>
+            <c:Sparkline Height="56" Values="{Binding Samples}" Capacity="30" Stroke="{StaticResource CyanBrush}" />
+            <TextBlock Text="{Binding Advice}" Classes="body" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- Bufferbloat -->
+      <Border Classes="card" Padding="22,20">
+        <StackPanel Spacing="14">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+              <Button Classes="ghost" Content="Cancelar" Command="{Binding BufferbloatCancelCommand}" IsVisible="{Binding BufferbloatCommand.IsRunning}" />
+              <Button Classes="primary" Content="Testar bufferbloat" Command="{Binding BufferbloatCommand}" />
+            </StackPanel>
+            <StackPanel Spacing="4" Margin="0,0,20,0">
+              <TextBlock Classes="h2" Text="Bufferbloat: o lag quando alguém usa a internet" />
+              <TextBlock Classes="muted" Text="Medimos o ping com a ligação parada e depois durante uma transferência de até 10 segundos (cerca de 25 MB da Cloudflare, nada é guardado)." />
+            </StackPanel>
+          </DockPanel>
+          <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding BloatProgress, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <ProgressBar IsIndeterminate="True" Width="160" Height="4" MinHeight="4" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding BloatProgress}" FontSize="12.5" />
+          </StackPanel>
+          <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding HasBloat}">
+            <Border Width="84" Height="84" CornerRadius="16"
+                    Background="{Binding BloatTone, Converter={x:Static v:ToneToBrushConverter.Instance}, ConverterParameter=soft}"
+                    BorderBrush="{Binding BloatTone, Converter={x:Static v:ToneToBrushConverter.Instance}, ConverterParameter=border}" BorderThickness="1">
+              <TextBlock Text="{Binding BloatGrade}" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"
+                         Foreground="{Binding BloatTone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
+            </Border>
+            <StackPanel Grid.Column="1" Margin="18,0,0,0" VerticalAlignment="Center" Spacing="6">
+              <TextBlock Text="{Binding BloatDetail}" FontWeight="SemiBold" FontSize="13.5" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding BloatAdvice}" Classes="body" Foreground="{StaticResource MutedBrush}" />
+            </StackPanel>
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card" Padding="18,14" Background="{StaticResource AccentGradientSoft}" BorderBrush="#3300E5FF">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <PathIcon Width="16" Height="16" Data="{StaticResource Icon.Network}" Foreground="{StaticResource CyanBrush}" VerticalAlignment="Top" />
+          <StackPanel Spacing="2">
+            <TextBlock Classes="h3" Text="Em breve: rotas otimizadas para jogos" />
+            <TextBlock Classes="muted" Text="Encaminhar o tráfego dos jogos pelos nossos servidores (como o NoPing) chega numa versão futura." />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

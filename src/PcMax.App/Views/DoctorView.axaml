@@ -1,0 +1,123 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PcMax.App.ViewModels"
+             xmlns:v="using:PcMax.App.Views"
+             x:Class="PcMax.App.Views.DoctorView"
+             x:DataType="vm:DoctorViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="36,18,36,36" Spacing="16">
+      <Border Classes="card" Padding="22,18">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <Button Classes="ghost" Content="Cancelar" Command="{Binding AnalyzeCancelCommand}" IsVisible="{Binding AnalyzeCommand.IsRunning}" />
+            <Button Classes="primary" Command="{Binding AnalyzeCommand}">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <PathIcon Width="14" Height="14" Data="{StaticResource Icon.Doctor}" Foreground="#0B0D17" />
+                <TextBlock Text="Analisar" Foreground="#0B0D17" FontWeight="Bold" />
+              </StackPanel>
+            </Button>
+          </StackPanel>
+          <StackPanel Spacing="4" Margin="0,0,20,0" VerticalAlignment="Center">
+            <TextBlock Classes="h2" Text="Diagnóstico completo" />
+            <TextBlock Classes="muted" Text="Verificamos monitor, memória, gráfica, energia, calor, disco e rede. Os problemas de configuração costumam custar mais FPS do que qualquer truque de software." />
+            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,8,0,0" IsVisible="{Binding AnalyzeCommand.IsRunning}">
+              <ProgressBar IsIndeterminate="True" Width="160" Height="4" MinHeight="4" VerticalAlignment="Center" />
+              <TextBlock Text="A analisar o teu PC…" FontSize="12.5" />
+            </StackPanel>
+          </StackPanel>
+        </DockPanel>
+      </Border>
+
+      <Border Classes="card" Padding="18,14" BorderBrush="#66FFB020" IsVisible="{Binding ShowPawnIoNotice}">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Classes="ghost" Content="Abrir pawnio.eu" Command="{Binding OpenPawnIoCommand}" VerticalAlignment="Center" />
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <PathIcon Width="18" Height="18" Data="{StaticResource Icon.Thermo}" Foreground="{StaticResource WarnBrush}" />
+            <StackPanel Spacing="2">
+              <TextBlock Classes="h3" Text="Para ler a temperatura do CPU instala o driver gratuito PawnIO" />
+              <TextBlock Classes="muted" Text="https://pawnio.eu · Sem ele, os avisos de calor do processador não funcionam." />
+            </StackPanel>
+          </StackPanel>
+        </DockPanel>
+      </Border>
+
+      <TextBlock Text="{Binding Summary}" Classes="muted" FontSize="13" IsVisible="{Binding HasResults}" />
+      <TextBlock Text="{Binding Error}" Foreground="{StaticResource CritBrush}"
+                 IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+      <Border Classes="card" Padding="40" IsVisible="{Binding !HasResults}">
+        <StackPanel HorizontalAlignment="Center" Spacing="8">
+          <PathIcon Width="38" Height="38" Data="{StaticResource Icon.Shield}" Foreground="{StaticResource FaintBrush}" />
+          <TextBlock Classes="h3" HorizontalAlignment="Center" Text="Ainda não analisaste este PC" />
+          <TextBlock Classes="muted" HorizontalAlignment="Center" Text="Carrega em “Analisar”. Demora poucos segundos e não altera nada." />
+        </StackPanel>
+      </Border>
+
+      <ItemsControl ItemsSource="{Binding Findings}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate><StackPanel Spacing="12" /></ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:FindingViewModel">
+            <Border Classes="card" Padding="0" ClipToBounds="True">
+              <Grid ColumnDefinitions="4,*">
+                <Border Background="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
+                <Grid Grid.Column="1" ColumnDefinitions="Auto,*,Auto" Margin="18,16,20,16">
+                  <Border Width="38" Height="38" CornerRadius="19" VerticalAlignment="Top"
+                          Background="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}, ConverterParameter=soft}">
+                    <PathIcon Width="18" Height="18" Data="{Binding SeverityIcon, Converter={x:Static v:IconKeyConverter.Instance}}"
+                              Foreground="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
+                  </Border>
+                  <StackPanel Grid.Column="1" Margin="14,0,16,0" Spacing="6">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <Border Classes="badge" Background="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}, ConverterParameter=soft}">
+                        <TextBlock Text="{Binding SeverityLabel}" Foreground="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
+                      </Border>
+                      <Border Classes="badge" Background="#1A22D39A" IsVisible="{Binding IsFixed}">
+                        <TextBlock Text="Corrigido" Foreground="{StaticResource GoodBrush}" />
+                      </Border>
+                      <Border Classes="badge" Background="#1A00E5FF" IsVisible="{Binding AutoInGames}">
+                        <TextBlock Text="Automático nos jogos" Foreground="{StaticResource CyanBrush}" />
+                      </Border>
+                    </StackPanel>
+                    <TextBlock Text="{Binding Title}" Classes="h2" FontSize="16" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding Explanation}" Classes="body" Foreground="{StaticResource MutedBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasImpact}" Margin="0,2,0,0">
+                      <TextBlock Text="Ganho (estimativa):" FontSize="12.5" Foreground="{StaticResource FaintBrush}" />
+                      <TextBlock Text="{Binding Impact}" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource CyanBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Expander Header="Ver passos" IsVisible="{Binding HasSteps}" Margin="0,6,0,0" HorizontalAlignment="Stretch">
+                      <ItemsControl ItemsSource="{Binding Steps}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:GuideStep">
+                            <Grid ColumnDefinitions="30,*" Margin="0,4">
+                              <Border Width="22" Height="22" CornerRadius="11" Background="{StaticResource AccentGradientSoft}" VerticalAlignment="Top">
+                                <TextBlock Text="{Binding Number}" FontSize="11.5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           Foreground="{StaticResource CyanBrush}" />
+                              </Border>
+                              <TextBlock Grid.Column="1" Text="{Binding Text}" Classes="body" Margin="0,1,0,0" />
+                            </Grid>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </Expander>
+                    <TextBlock Text="{Binding FixResult}" FontSize="12.5" Foreground="{StaticResource GoodBrush}" TextWrapping="Wrap"
+                               IsVisible="{Binding FixResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="2" VerticalAlignment="Top" Spacing="6">
+                    <Button Classes="primary" Command="{Binding FixCommand}" IsVisible="{Binding ShowFixButton}">
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <ProgressBar IsIndeterminate="True" Width="14" Height="3" MinWidth="14" IsVisible="{Binding FixCommand.IsRunning}" />
+                        <TextBlock Text="Corrigir" Foreground="#0B0D17" FontWeight="Bold" />
+                      </StackPanel>
+                    </Button>
+                  </StackPanel>
+                </Grid>
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

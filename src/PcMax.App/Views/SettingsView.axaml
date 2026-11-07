@@ -1,0 +1,205 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PcMax.App.ViewModels"
+             x:Class="PcMax.App.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+  <UserControl.Styles>
+    <Style Selector="Grid.row">
+      <Setter Property="Margin" Value="0,8" />
+    </Style>
+    <Style Selector="Grid.row > StackPanel">
+      <Setter Property="Spacing" Value="2" />
+      <Setter Property="Margin" Value="0,0,20,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Grid.row > StackPanel > TextBlock.label">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="FontWeight" Value="Medium" />
+    </Style>
+    <Style Selector="Separator">
+      <Setter Property="Background" Value="{StaticResource CardBorderBrush}" />
+      <Setter Property="Margin" Value="0,4" />
+    </Style>
+    <Style Selector="NumericUpDown">
+      <Setter Property="Width" Value="122" />
+      <Setter Property="FormatString" Value="0" />
+    </Style>
+  </UserControl.Styles>
+
+  <ScrollViewer>
+    <Grid Margin="36,18,36,36" ColumnDefinitions="*,*">
+      <!-- Left column -->
+      <StackPanel Grid.Column="0" Spacing="16" Margin="0,0,8,0">
+        <Border Classes="card">
+          <StackPanel>
+            <TextBlock Classes="h2" Text="Arranque e comportamento" Margin="0,0,0,6" />
+            <Grid Classes="row" ColumnDefinitions="*,Auto">
+              <StackPanel><TextBlock Classes="label" Text="Iniciar com o Windows" /><TextBlock Classes="muted" Text="Sem pedir permissão de administrador a cada arranque." /></StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding StartWithWindows}" />
+            </Grid>
+            <Separator />
+            <Grid Classes="row" ColumnDefinitions="*,Auto">
+              <StackPanel><TextBlock Classes="label" Text="Iniciar minimizado" /><TextBlock Classes="muted" Text="Arranca escondido na área de notificação." /></StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding StartMinimized}" />
+            </Grid>
+            <Separator />
+            <Grid Classes="row" ColumnDefinitions="*,Auto">
+              <StackPanel><TextBlock Classes="label" Text="Fechar para a área de notificação" /><TextBlock Classes="muted" Text="O X esconde a janela; a app continua a vigiar." /></StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding CloseToTray}" />
+            </Grid>
+            <Separator />
+            <Grid Classes="row" ColumnDefinitions="*,Auto">
+              <StackPanel><TextBlock Classes="label" Text="Modo jogo automático" /><TextBlock Classes="muted" Text="Otimiza ao abrir um jogo e repõe tudo ao fechar." /></StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoGameMode}" />
+            </Grid>
+            <Separator />
+            <Grid Classes="row" ColumnDefinitions="*,Auto">
+              <StackPanel><TextBlock Classes="label" Text="Ponto de restauro antes de alterar" /><TextBlock Classes="muted" Text="Uma rede de segurança extra do próprio Windows." /></StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding CreateRestorePoint}" />
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel>
+            <TextBlock Classes="h2" Text="Notificações" Margin="0,0,0,6" />
+            <Grid Classes="row" ColumnDefinitions="*,Auto">
+              <StackPanel><TextBlock Classes="label" Text="Mostrar notificações" /><TextBlock Classes="muted" Text="Avisos de temperatura, modo jogo e atualizações." /></StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding NotificationsEnabled}" />
+            </Grid>
+            <Separator />
+            <Grid Classes="row" ColumnDefinitions="*,Auto">
+              <StackPanel><TextBlock Classes="label" Text="Silêncio durante os jogos" /><TextBlock Classes="muted" Text="Durante um jogo só aparecem avisos críticos." /></StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding QuietWhileGaming}" />
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="4">
+            <DockPanel Margin="0,0,0,6">
+              <Button DockPanel.Dock="Right" Classes="link" Content="Repor predefinições" Command="{Binding ResetTemperaturesCommand}" />
+              <TextBlock Classes="h2" Text="Limites de temperatura (°C)" />
+            </DockPanel>
+            <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto,Auto">
+              <TextBlock Grid.Column="1" Text="AVISO" Classes="caps" FontSize="10" Margin="0,0,0,6" HorizontalAlignment="Center" />
+              <TextBlock Grid.Column="2" Text="CRÍTICO" Classes="caps" FontSize="10" Margin="10,0,0,6" HorizontalAlignment="Center" />
+              <TextBlock Grid.Row="1" Text="Processador (CPU)" VerticalAlignment="Center" FontSize="14" />
+              <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding CpuWarning}" Minimum="30" Maximum="110" Increment="1" Margin="0,4" />
+              <NumericUpDown Grid.Row="1" Grid.Column="2" Value="{Binding CpuCritical}" Minimum="30" Maximum="115" Increment="1" Margin="10,4,0,4" />
+              <TextBlock Grid.Row="2" Text="Placa gráfica (GPU)" VerticalAlignment="Center" FontSize="14" />
+              <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding GpuWarning}" Minimum="30" Maximum="110" Increment="1" Margin="0,4" />
+              <NumericUpDown Grid.Row="2" Grid.Column="2" Value="{Binding GpuCritical}" Minimum="30" Maximum="115" Increment="1" Margin="10,4,0,4" />
+            </Grid>
+            <Separator Margin="0,10,0,6" />
+            <Grid ColumnDefinitions="*,Auto">
+              <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                <TextBlock Text="Segundos acima do limite antes de avisar" FontSize="14" TextWrapping="Wrap" />
+                <TextBlock Classes="muted" FontSize="12" Text="Ignora picos curtos." />
+              </StackPanel>
+              <NumericUpDown Grid.Column="1" Value="{Binding SustainSeconds}" Minimum="1" Maximum="300" Increment="1" />
+            </Grid>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+
+      <!-- Right column -->
+      <StackPanel Grid.Column="1" Spacing="16" Margin="8,0,0,0">
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="h2" Text="Nível de risco" />
+            <TextBlock Classes="muted" Text="O máximo que a app pode alterar. No modo Seguro nada pode estragar o PC." />
+            <ComboBox ItemsSource="{Binding RiskOptions}" SelectedItem="{Binding SelectedRisk}" HorizontalAlignment="Stretch">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:RiskOption">
+                  <StackPanel Spacing="1" Margin="0,2">
+                    <TextBlock Text="{Binding Label}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding Description}" Classes="muted" FontSize="12" />
+                  </StackPanel>
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Classes="muted" FontSize="12" Foreground="{StaticResource WarnBrush}" IsVisible="{Binding RiskIsElevated}"
+                       Text="Modo com mais risco ativo. Cada ajuste continua reversível." />
+            <TextBlock Classes="muted" FontSize="12" Text="As funções de overclock chegam numa versão futura." />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="h2" Text="Apps a pausar durante os jogos" />
+            <TextBlock Classes="muted" Text="Nome do processo, sem “.exe”. Processos do Windows e anti-cheats nunca são tocados." />
+            <ItemsControl ItemsSource="{Binding BackgroundApps}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="x:String">
+                  <Border Background="#1E2440" CornerRadius="16" Padding="12,4,4,4" Margin="0,0,6,6">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                      <TextBlock Text="{Binding}" FontSize="12.5" VerticalAlignment="Center" />
+                      <Button Classes="icon" Padding="5" ToolTip.Tip="Remover"
+                              Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).RemoveBackgroundAppCommand}"
+                              CommandParameter="{Binding}">
+                        <PathIcon Width="8" Height="8" Data="{StaticResource Icon.Close}" Foreground="{StaticResource MutedBrush}" />
+                      </Button>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Text="{Binding NewBackgroundApp}" Watermark="ex.: Discord" />
+              <Button Grid.Column="1" Classes="ghost" Content="Adicionar" Margin="8,0,0,0" Command="{Binding AddBackgroundAppCommand}" />
+            </Grid>
+            <TextBlock Text="{Binding BackgroundAppError}" Foreground="{StaticResource WarnBrush}" FontSize="12" TextWrapping="Wrap"
+                       IsVisible="{Binding BackgroundAppError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel>
+            <TextBlock Classes="h2" Text="Atualizações e privacidade" Margin="0,0,0,6" />
+            <Grid Classes="row" ColumnDefinitions="*,Auto">
+              <StackPanel><TextBlock Classes="label" Text="Atualizações automáticas" /><TextBlock Classes="muted" Text="Transfere em segundo plano e instala ao fechar a app." /></StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoUpdate}" />
+            </Grid>
+            <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,8">
+              <TextBlock Text="{Binding UpdateStatus}" Classes="muted" FontSize="12" VerticalAlignment="Center" Margin="0,0,12,0" />
+              <Button Grid.Column="1" Classes="ghost" Content="Procurar atualizações agora" Command="{Binding CheckUpdatesCommand}" />
+            </Grid>
+            <Separator />
+            <Grid Classes="row" ColumnDefinitions="*,Auto">
+              <StackPanel><TextBlock Classes="label" Text="Partilhar estatísticas anónimas" /><TextBlock Classes="muted" Text="Nesta versão nada é enviado, mesmo com isto ligado." /></StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding ShareAnonymousStats}" />
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <DockPanel>
+            <Image DockPanel.Dock="Left" Source="/Assets/pcmax.png" Width="44" Height="44" Margin="0,0,14,0" VerticalAlignment="Top" />
+            <StackPanel Spacing="6">
+              <TextBlock Text="{Binding Version}" Classes="h3" />
+              <TextBlock Classes="muted" FontSize="12" Text="Código aberto. Feito para jogadores, sem truques nem placebo." />
+              <WrapPanel Margin="0,4,0,0">
+                <Button Classes="ghost" Margin="0,0,8,6" Command="{Binding OpenRepoCommand}">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <PathIcon Width="13" Height="13" Data="{StaticResource Icon.Link}" />
+                    <TextBlock Text="GitHub" />
+                  </StackPanel>
+                </Button>
+                <Button Classes="ghost" Margin="0,0,8,6" Command="{Binding OpenLogsCommand}">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <PathIcon Width="13" Height="13" Data="{StaticResource Icon.Folder}" />
+                    <TextBlock Text="Abrir pasta de registos" />
+                  </StackPanel>
+                </Button>
+              </WrapPanel>
+            </StackPanel>
+          </DockPanel>
+        </Border>
+      </StackPanel>
+    </Grid>
+  </ScrollViewer>
+</UserControl>

@@ -8,7 +8,7 @@ public sealed record GameProfile
     public bool Enabled { get; init; } = true;
     public bool HighPriority { get; init; } = true;
     public bool SuspendBackgroundApps { get; init; } = true;
-    public IReadOnlyList<string> TweakIds { get; init; } = new[] { "power.high-performance", "latency.timer-resolution" };
+    public IReadOnlyList<string> TweakIds { get; init; } = new[] { "power.high-performance" };
 }
 
 public sealed record GameEvent(string ExecutableName, int ProcessId, string? DisplayName);

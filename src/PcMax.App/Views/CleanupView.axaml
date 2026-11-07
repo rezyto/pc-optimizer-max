@@ -1,0 +1,113 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PcMax.App.ViewModels"
+             x:Class="PcMax.App.Views.CleanupView"
+             x:DataType="vm:CleanupViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="36,18,36,36" Spacing="16">
+      <!-- Cleanup -->
+      <Border Classes="card" Padding="22,20">
+        <StackPanel Spacing="14">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+              <Button Classes="ghost" Content="Cancelar" Command="{Binding ScanCancelCommand}" IsVisible="{Binding ScanCommand.IsRunning}" />
+              <Button Classes="ghost" Command="{Binding ScanCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <PathIcon Width="13" Height="13" Data="{StaticResource Icon.Refresh}" />
+                  <TextBlock Text="Analisar" />
+                </StackPanel>
+              </Button>
+              <Button Classes="primary" Command="{Binding CleanCommand}" IsVisible="{Binding HasScan}">
+                <TextBlock Foreground="#0B0D17" FontWeight="Bold">
+                  <Run Text="Limpar" /><Run Text=" " /><Run Text="{Binding SelectedTotal}" />
+                </TextBlock>
+              </Button>
+            </StackPanel>
+            <StackPanel Spacing="4" Margin="0,0,20,0">
+              <TextBlock Classes="h2" Text="Limpeza de disco" />
+              <TextBlock Classes="muted" Text="Só apagamos coisas que o Windows e os programas voltam a criar sozinhos. As recomendadas já vêm marcadas." />
+            </StackPanel>
+          </DockPanel>
+          <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding ScanCommand.IsRunning}">
+            <ProgressBar IsIndeterminate="True" Width="160" Height="4" MinHeight="4" VerticalAlignment="Center" />
+            <TextBlock Text="A procurar ficheiros desnecessários…" FontSize="12.5" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding CleanCommand.IsRunning}">
+            <ProgressBar IsIndeterminate="True" Width="160" Height="4" MinHeight="4" VerticalAlignment="Center" />
+            <TextBlock Text="A limpar…" FontSize="12.5" />
+          </StackPanel>
+          <TextBlock Text="{Binding CleanResult}" Foreground="{StaticResource GoodBrush}" FontWeight="SemiBold"
+                     IsVisible="{Binding CleanResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <TextBlock Classes="muted" Text="Carrega em “Analisar” para ver quanto espaço podes recuperar." IsVisible="{Binding !HasScan}" />
+
+          <ItemsControl ItemsSource="{Binding Categories}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:CleanupItemViewModel">
+                <Border Classes="inset" Margin="0,0,0,8" Padding="14,10">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <CheckBox IsChecked="{Binding IsSelected}" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1" Margin="4,0,16,0" Spacing="2" VerticalAlignment="Center">
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14" />
+                        <Border Classes="badge" Background="#1A22D39A" Padding="8,1" IsVisible="{Binding Recommended}">
+                          <TextBlock Text="Recomendado" Foreground="{StaticResource GoodBrush}" FontSize="10.5" />
+                        </Border>
+                      </StackPanel>
+                      <TextBlock Text="{Binding Description}" Classes="muted" FontSize="12.5" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">
+                      <TextBlock Text="{Binding Size}" FontWeight="Bold" FontSize="16" HorizontalAlignment="Right" />
+                      <TextBlock Text="{Binding FilesText}" Classes="muted" FontSize="11.5" HorizontalAlignment="Right" />
+                    </StackPanel>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <!-- Startup -->
+      <Border Classes="card" Padding="22,20">
+        <StackPanel Spacing="14">
+          <DockPanel>
+            <Button DockPanel.Dock="Right" Classes="ghost" Command="{Binding LoadStartupCommand}" VerticalAlignment="Center">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <PathIcon Width="13" Height="13" Data="{StaticResource Icon.Refresh}" />
+                <TextBlock Text="Atualizar" />
+              </StackPanel>
+            </Button>
+            <StackPanel Spacing="4" Margin="0,0,20,0">
+              <TextBlock Classes="h2" Text="Programas no arranque" />
+              <TextBlock Classes="muted" Text="{Binding StartupSummary}" />
+            </StackPanel>
+          </DockPanel>
+          <ItemsControl ItemsSource="{Binding StartupItems}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:StartupItemViewModel">
+                <Border Classes="inset" Margin="0,0,0,8" Padding="14,10">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Spacing="2" Margin="0,0,16,0">
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14" />
+                        <TextBlock Text="{Binding Publisher}" Classes="muted" FontSize="12" VerticalAlignment="Center" />
+                      </StackPanel>
+                      <TextBlock Text="{Binding Command}" FontSize="11.5" Foreground="{StaticResource FaintBrush}" TextTrimming="CharacterEllipsis"
+                                 ToolTip.Tip="{Binding Command}" />
+                      <TextBlock Text="{Binding Error}" FontSize="12" Foreground="{StaticResource CritBrush}"
+                                 IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding Location}" Classes="muted" FontSize="11.5" VerticalAlignment="Center" />
+                      <ToggleSwitch IsChecked="{Binding Enabled}" />
+                    </StackPanel>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

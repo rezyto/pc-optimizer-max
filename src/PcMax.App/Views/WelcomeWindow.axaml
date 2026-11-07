@@ -1,0 +1,52 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PcMax.App.Views.WelcomeWindow"
+        Title="Bem-vindo ao PC Max" Icon="/Assets/pcmax.ico"
+        Width="560" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource CardBrush}">
+  <StackPanel>
+    <Border Background="{StaticResource HeroGradient}" Padding="32,28">
+      <StackPanel Orientation="Horizontal" Spacing="16">
+        <Image Source="/Assets/pcmax.png" Width="56" Height="56" />
+        <StackPanel VerticalAlignment="Center" Spacing="2">
+          <TextBlock Text="Bem-vindo ao PC Max" FontSize="22" FontWeight="Bold" />
+          <TextBlock Text="Mais desempenho nos jogos, sem riscos." Classes="muted" FontSize="14" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+    <StackPanel Margin="32,24,32,26" Spacing="18">
+      <Grid ColumnDefinitions="40,*">
+        <Border Width="30" Height="30" CornerRadius="15" Background="{StaticResource AccentGradientSoft}" VerticalAlignment="Top">
+          <PathIcon Width="15" Height="15" Data="{StaticResource Icon.Doctor}" Foreground="{StaticResource CyanBrush}" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="2">
+          <TextBlock Classes="h3" Text="Encontra o que trava o teu PC" />
+          <TextBlock Classes="muted" Text="Monitor na frequência errada, RAM lenta, calor… mostramos o que dá mais ganho primeiro." />
+        </StackPanel>
+      </Grid>
+      <Grid ColumnDefinitions="40,*">
+        <Border Width="30" Height="30" CornerRadius="15" Background="{StaticResource AccentGradientSoft}" VerticalAlignment="Top">
+          <PathIcon Width="15" Height="15" Data="{StaticResource Icon.Games}" Foreground="{StaticResource CyanBrush}" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="2">
+          <TextBlock Classes="h3" Text="Modo jogo automático" />
+          <TextBlock Classes="muted" Text="Quando abres um jogo, a app dá-lhe prioridade e vigia as temperaturas. Ao fechar, tudo volta ao normal." />
+        </StackPanel>
+      </Grid>
+      <Grid ColumnDefinitions="40,*">
+        <Border Width="30" Height="30" CornerRadius="15" Background="{StaticResource AccentGradientSoft}" VerticalAlignment="Top">
+          <PathIcon Width="15" Height="15" Data="{StaticResource Icon.Undo}" Foreground="{StaticResource CyanBrush}" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="2">
+          <TextBlock Classes="h3" Text="Tudo é reversível" />
+          <TextBlock Classes="muted" Text="Guardamos o estado anterior de cada alteração. No Histórico desfazes tudo com um clique." />
+        </StackPanel>
+      </Grid>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,8,0,0">
+        <Button Classes="ghost" Content="Mais tarde" Click="OnLater" />
+        <Button Classes="primary" Content="Fazer a primeira análise" Click="OnAnalyze" />
+      </StackPanel>
+    </StackPanel>
+  </StackPanel>
+</Window>

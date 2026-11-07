@@ -1,0 +1,137 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PcMax.App.ViewModels"
+             xmlns:v="using:PcMax.App.Views"
+             xmlns:c="using:PcMax.App.Controls"
+             x:Class="PcMax.App.Views.DashboardView"
+             x:DataType="vm:DashboardViewModel">
+  <UserControl.Resources>
+    <DataTemplate x:Key="MetricCard" x:DataType="vm:MetricViewModel">
+      <Border Classes="card" Padding="16,14" Margin="0,0,12,0">
+        <StackPanel Spacing="6">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <PathIcon Width="14" Height="14" Data="{Binding Icon, Converter={x:Static v:IconKeyConverter.Instance}}"
+                      Foreground="{StaticResource MutedBrush}" />
+            <TextBlock Text="{Binding Title}" Classes="muted" FontSize="12.5" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+          </StackPanel>
+          <TextBlock Text="{Binding Display}" Classes="value"
+                     Foreground="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
+          <TextBlock Text="{Binding Detail}" Classes="muted" FontSize="11.5" Height="16" TextWrapping="NoWrap" />
+          <ProgressBar Value="{Binding GaugeValue}" Maximum="{Binding Maximum}" Height="4" MinHeight="4" CornerRadius="2"
+                       Foreground="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
+          <c:Sparkline Height="46" Margin="0,6,0,0" Values="{Binding History}" Maximum="{Binding Maximum}"
+                       Stroke="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+  </UserControl.Resources>
+
+  <ScrollViewer>
+    <StackPanel Margin="36,18,36,36" Spacing="22">
+      <Grid ColumnDefinitions="310,*">
+        <!-- Health score -->
+        <Border Classes="card" Margin="0,0,16,0" Padding="22">
+          <StackPanel Spacing="14" HorizontalAlignment="Center">
+            <TextBlock Text="SAÚDE DO PC" Classes="caps" HorizontalAlignment="Center" />
+            <Grid Width="164" Height="164" HorizontalAlignment="Center">
+              <c:RingGauge Value="{Binding HealthScore}" Maximum="100" Thickness="13"
+                           Foreground="{Binding HealthTone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
+              <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <TextBlock Text="{Binding HealthScore}" FontSize="46" FontWeight="Bold" HorizontalAlignment="Center"
+                           IsVisible="{Binding HasHealth}" />
+                <TextBlock Text="/ 100" Classes="muted" HorizontalAlignment="Center" IsVisible="{Binding HasHealth}" />
+                <ProgressBar IsIndeterminate="True" Width="70" IsVisible="{Binding !HasHealth}" />
+              </StackPanel>
+            </Grid>
+            <StackPanel Spacing="4">
+              <TextBlock Text="{Binding HealthLabel}" Classes="h2" HorizontalAlignment="Center"
+                         Foreground="{Binding HealthTone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
+              <TextBlock Text="{Binding HealthHint}" Classes="muted" TextAlignment="Center" FontSize="12.5" MaxWidth="250" />
+            </StackPanel>
+            <Button Classes="link" Content="Ver detalhes no Médico do PC →" HorizontalAlignment="Center"
+                    Command="{Binding OpenDoctorCommand}" />
+          </StackPanel>
+        </Border>
+
+        <!-- Optimize hero -->
+        <Border Grid.Column="1" Classes="card" Background="{StaticResource HeroGradient}" Padding="28,24">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Spacing="14">
+              <Border Classes="badge" Background="#1A22D39A" IsVisible="{Binding IsGameActive}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Ellipse Width="7" Height="7" Fill="{StaticResource GoodBrush}" VerticalAlignment="Center" />
+                  <TextBlock Text="{Binding GameStatus}" Foreground="{StaticResource GoodBrush}" />
+                </StackPanel>
+              </Border>
+              <Border Classes="badge" Background="#1A8A90B2" IsVisible="{Binding !IsGameActive}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <PathIcon Width="12" Height="12" Data="{StaticResource Icon.Games}" Foreground="{StaticResource MutedBrush}" />
+                  <TextBlock Text="{Binding GameStatus}" Foreground="{StaticResource MutedBrush}" />
+                </StackPanel>
+              </Border>
+              <TextBlock Text="Otimiza o teu PC num clique" FontSize="24" FontWeight="Bold" TextWrapping="Wrap" />
+              <TextBlock Classes="body" Foreground="{StaticResource MutedBrush}" MaxWidth="560" HorizontalAlignment="Left"
+                         Text="Analisamos o PC, criamos um ponto de restauro e aplicamos só as correções seguras. Tudo fica no Histórico para desfazeres quando quiseres." />
+              <TextBlock Text="{Binding PcSummary}" FontSize="12" Foreground="{StaticResource FaintBrush}"
+                         IsVisible="{Binding PcSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,6,0,0">
+                <Button Classes="primary big" Command="{Binding OptimizeCommand}">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <PathIcon Width="18" Height="18" Data="{StaticResource Icon.Logo}" Foreground="#0B0D17" />
+                    <TextBlock Text="Otimizar agora" Foreground="#0B0D17" FontWeight="Bold" VerticalAlignment="Center" />
+                  </StackPanel>
+                </Button>
+                <Button Classes="ghost" Content="Cancelar" VerticalAlignment="Center"
+                        Command="{Binding OptimizeCancelCommand}" IsVisible="{Binding OptimizeCommand.IsRunning}" />
+              </StackPanel>
+            </StackPanel>
+
+            <StackPanel Spacing="10" Margin="0,18,0,0">
+              <StackPanel Spacing="6" IsVisible="{Binding ProgressText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <TextBlock Text="{Binding ProgressText}" FontSize="13" />
+                <ProgressBar IsIndeterminate="True" Height="4" MinHeight="4" />
+              </StackPanel>
+              <TextBlock Text="{Binding ResultSummary}" FontWeight="SemiBold" TextWrapping="Wrap"
+                         IsVisible="{Binding ResultSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <TextBlock Text="{Binding Warning}" Foreground="{StaticResource WarnBrush}" FontSize="12.5" TextWrapping="Wrap"
+                         IsVisible="{Binding Warning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <ItemsControl ItemsSource="{Binding Results}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ResultLine">
+                    <Grid ColumnDefinitions="22,*" Margin="0,3">
+                      <PathIcon Width="14" Height="14" Data="{StaticResource Icon.Check}" VerticalAlignment="Top" Margin="0,2,0,0"
+                                Foreground="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
+                      <TextBlock Grid.Column="1" TextWrapping="Wrap" FontSize="13">
+                        <Run Text="{Binding Title}" FontWeight="SemiBold" />
+                        <Run Text=" — " Foreground="{StaticResource FaintBrush}" />
+                        <Run Text="{Binding Detail}" Foreground="{StaticResource MutedBrush}" />
+                      </TextBlock>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </DockPanel>
+        </Border>
+      </Grid>
+
+      <StackPanel Spacing="12">
+        <DockPanel>
+          <TextBlock Text="SENSORES EM TEMPO REAL" Classes="caps" VerticalAlignment="Center" />
+          <TextBlock Text="últimos 60 segundos" Classes="muted" FontSize="11.5" HorizontalAlignment="Right" VerticalAlignment="Center" />
+        </DockPanel>
+        <Grid ColumnDefinitions="*,*,*,*,*" Margin="0,0,-12,0">
+          <ContentControl Grid.Column="0" Content="{Binding CpuTemp}" ContentTemplate="{StaticResource MetricCard}" />
+          <ContentControl Grid.Column="1" Content="{Binding GpuTemp}" ContentTemplate="{StaticResource MetricCard}" />
+          <ContentControl Grid.Column="2" Content="{Binding CpuLoad}" ContentTemplate="{StaticResource MetricCard}" />
+          <ContentControl Grid.Column="3" Content="{Binding GpuLoad}" ContentTemplate="{StaticResource MetricCard}" />
+          <ContentControl Grid.Column="4" Content="{Binding Ram}" ContentTemplate="{StaticResource MetricCard}" />
+        </Grid>
+        <Border Classes="card" Padding="16,12" IsVisible="{Binding CpuSensorsNeedDriver}" BorderBrush="#55FFB020">
+          <TextBlock Classes="body" Foreground="{StaticResource WarnBrush}"
+                     Text="Para ler a temperatura do CPU instala o driver gratuito PawnIO (https://pawnio.eu). Vê o Médico do PC." />
+        </Border>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>
