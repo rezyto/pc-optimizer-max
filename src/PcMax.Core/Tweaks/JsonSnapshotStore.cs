@@ -14,7 +14,7 @@ public sealed class JsonSnapshotStore : ISnapshotStore
         try
         {
             if (!File.Exists(_path)) return Array.Empty<TweakSnapshot>();
-            return Parse(AtomicFile.ReadAllTextCapped(_path));
+            return Parse(AtomicFile.WithRetry(() => AtomicFile.ReadAllTextCapped(_path)));
         }
         catch (Exception)
         {

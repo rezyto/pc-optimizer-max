@@ -41,7 +41,7 @@ public static class Log
             .Append(DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss.fff zzz"))
             .Append(" [").Append(level).Append("] ")
             .Append(message);
-        if (ex is not null) line.Append(" | ").Append(ex.GetType().Name).Append(": ").Append(ex.Message);
+        if (ex is not null) line.Append(" | ").Append(ex); // full ToString(): type, message, inner exceptions and stack trace
         var text = line.Append(Environment.NewLine).ToString();
 
         lock (Gate)

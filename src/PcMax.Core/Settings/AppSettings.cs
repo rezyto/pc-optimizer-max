@@ -42,6 +42,14 @@ public sealed record AppSettings
     public IReadOnlyList<Games.GameProfile> Games { get; init; } = Array.Empty<Games.GameProfile>();
 
     /// <summary>
+    /// Value equality including the lists (record equality compares list references, so two equal settings
+    /// with freshly built lists would never be "equal").
+    /// </summary>
+    public bool SameAs(AppSettings? other) =>
+        other is not null && (ReferenceEquals(this, other) ||
+            System.Text.Json.JsonSerializer.Serialize(this, JsonDefaults.Options) == System.Text.Json.JsonSerializer.Serialize(other, JsonDefaults.Options));
+
+    /// <summary>
     /// Makes settings read from disk safe: every null becomes its default, lists are capped,
     /// process names must be plain names and protected processes are removed. Never throws.
     /// </summary>

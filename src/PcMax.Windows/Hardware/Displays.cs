@@ -15,7 +15,8 @@ internal sealed record DisplayState(
     int BitsPerPel,
     int CurrentHz,
     int MaxHz,
-    IReadOnlySet<int> AvailableHz);
+    IReadOnlySet<int> AvailableHz,
+    string? MonitorId = null);
 
 /// <summary>Display enumeration and refresh-rate changes (user32 EnumDisplay* / ChangeDisplaySettingsEx).</summary>
 [SupportedOSPlatform("windows")]
@@ -45,7 +46,7 @@ internal static class Displays
             if (string.IsNullOrWhiteSpace(friendly)) friendly = dd.DeviceName.Replace(@"\\.\", "");
 
             result.Add(new DisplayState(dd.DeviceName, friendly!, (dd.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) != 0,
-                w, h, bpp, hz, max, available));
+                w, h, bpp, hz, max, available, MonitorInterfaceId(dd.DeviceName)));
         }
         return result;
     }
@@ -97,6 +98,25 @@ internal static class Displays
         }
         Log.Info($"Ecrã {deviceName}: frequência alterada para {hz} Hz.");
         return true;
+    }
+
+    private const uint EDD_GET_DEVICE_INTERFACE_NAME = 0x1;
+
+    /// <summary>
+    /// Stable identity of the monitor behind a GDI name: its device interface path
+    /// ("\\?\DISPLAY#GSM5B7F#5&amp;…#{e6f07b5f-…}"), which encodes the EDID model and the connection. GDI numbers
+    /// (\\.\DISPLAYn) change after docking, cable swaps or driver reinstalls; this does not.
+    /// </summary>
+    private static string? MonitorInterfaceId(string adapterDeviceName)
+    {
+        try
+        {
+            var mon = DISPLAY_DEVICE.Create();
+            if (!EnumDisplayDevices(adapterDeviceName, 0, ref mon, EDD_GET_DEVICE_INTERFACE_NAME)) return null;
+            var id = mon.DeviceID?.Trim();
+            return string.IsNullOrEmpty(id) || id.Contains('|') ? null : id;
+        }
+        catch { return null; }
     }
 
     private static string? MonitorDeviceString(string adapterDeviceName)

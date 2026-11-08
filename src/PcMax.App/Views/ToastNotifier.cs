@@ -48,12 +48,18 @@ public sealed class ToastNotifier : IActionNotifier
     private void Add(Alert alert, string? actionText, Action? action)
     {
         // Same alert already showing: replace it.
+        // Windows are taken out of the list here, not only in Closed: the loop must end even if Close() does not
+        // raise Closed synchronously (or at all, for a window that failed to open).
         foreach (var w in _open.Where(w => (w.DataContext as ToastViewModel)?.Alert.Key == alert.Key).ToList())
-            w.Close();
+        {
+            _open.Remove(w);
+            CloseQuietly(w);
+        }
         while (_open.Count >= MaxVisible)
         {
             var victim = _open.FirstOrDefault(w => (w.DataContext as ToastViewModel)?.IsSticky != true) ?? _open[0];
-            victim.Close();
+            _open.Remove(victim);
+            CloseQuietly(victim);
         }
 
         var vm = new ToastViewModel(alert, actionText, action);
@@ -68,6 +74,12 @@ public sealed class ToastNotifier : IActionNotifier
 
         if (!vm.IsSticky)
             DispatcherTimer.RunOnce(() => { if (_open.Contains(win)) win.Close(); }, Lifetime);
+    }
+
+    private static void CloseQuietly(ToastWindow w)
+    {
+        try { w.Close(); }
+        catch (Exception ex) { AppLog.Warn("Falha ao fechar notificação", ex); }
     }
 
     /// <summary>Newest at the bottom, older ones pushed up.</summary>

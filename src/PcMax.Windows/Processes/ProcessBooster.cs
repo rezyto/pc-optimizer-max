@@ -54,6 +54,20 @@ public sealed class ProcessBooster : IProcessBooster
         catch (InvalidOperationException) { }
     }
 
+    public bool IsRunning(int processId, string executableName)
+    {
+        try
+        {
+            using var p = Process.GetProcessById(processId);
+            if (p.HasExited) return false;
+            var exe = executableName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? executableName[..^4] : executableName;
+            return string.Equals(p.ProcessName, exe, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException) { return false; }          // no such pid
+        catch (InvalidOperationException) { return false; }  // exited
+        catch { return true; }                               // access denied etc.: assume it still runs
+    }
+
     // ------------------------------------------------------------------ suspend / resume
 
     public IReadOnlyList<int> SuspendBackground(IEnumerable<string> processNames, int? excludePid = null)

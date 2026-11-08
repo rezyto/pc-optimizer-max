@@ -54,7 +54,7 @@ public partial class App : Application
 
         _host = AppHostFactory.Create(paths, settings, toasts, ui);
         _current = _host;
-        _host.Updates = new UpdateService(settings, toasts, () => _host?.IsGameActive ?? false, paths) { ExitApp = ExitAsync };
+        _host.Updates = new UpdateService(settings, toasts, GameRunning, paths) { ExitApp = ExitAsync };
 
         _dialogs = new DialogService(() => _main is { IsVisible: true } ? _main : null);
         var vm = new MainWindowViewModel(_host, _dialogs);
@@ -63,7 +63,12 @@ public partial class App : Application
 
         DataContext = new TrayViewModel(settings, ui, ShowMainWindow, RevertAllFromTrayAsync, ExitAsync);
 
-        desktop.ShutdownRequested += (_, _) => Cleanup(); // Windows logoff/shutdown
+        // Windows logoff/shutdown: undo the game session first (power plan would otherwise survive the reboot).
+        desktop.ShutdownRequested += (_, _) =>
+        {
+            _host?.EmergencyRevert(TimeSpan.FromSeconds(5));
+            Cleanup();
+        };
         Options.Instance?.ListenForShow(() => Dispatcher.UIThread.Post(ShowMainWindow));
 
         var startMinimized = Options.Minimized && settings.Current.StartMinimizedToTray;
@@ -107,6 +112,12 @@ public partial class App : Application
             }
         }
     }
+
+    /// <summary>
+    /// For the updater: a game session, or any detected game running (also with automatic game mode off),
+    /// blocks checks, downloads and installs.
+    /// </summary>
+    private bool GameRunning() => _host is { } h && (h.IsGameActive || h.RunningGames.Count > 0);
 
     public void ShowMainWindow()
     {
@@ -187,8 +198,7 @@ public partial class App : Application
     {
         var host = _current;
         if (host is null) return;
-        try { Task.Run(() => host.Games.AbortAsync()).Wait(TimeSpan.FromSeconds(5)); } catch { }
-        try { host.Settings.Flush(); } catch { }
+        try { host.EmergencyRevert(TimeSpan.FromSeconds(5)); } catch { }
     }
 
     private void OnUiException(object? sender, DispatcherUnhandledExceptionEventArgs e)

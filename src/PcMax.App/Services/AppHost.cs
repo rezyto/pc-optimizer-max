@@ -37,7 +37,7 @@ public sealed class AppHost : IDisposable
         Guard = new ChangeGuard(platform.RestorePoints, settings);
         Optimizer = new OptimizerService(Health, Engine, Guard);
         Network = new NetworkTester(platform.Network, load);
-        Benchmark = new BenchmarkService(platform.FrameCapture, Engine, Guard);
+        Benchmark = new BenchmarkService(platform.FrameCapture, Engine, Guard, pid => Games.CurrentGame?.ProcessId == pid);
 
         Games.StatusChanged += (_, msg) =>
         {
@@ -45,6 +45,7 @@ public sealed class AppHost : IDisposable
             RaiseGameStatus();
         };
         Settings.Changed += OnSettingsChanged;
+        Engine.PersistFailed += (_, ex) => AppLog.Error("Não foi possível guardar o registo de ajustes ativos (tenta de novo na próxima alteração)", ex);
     }
 
     public AppPaths Paths { get; }
@@ -139,7 +140,7 @@ public sealed class AppHost : IDisposable
             await Games.AbortAsync().ConfigureAwait(false);
             if (wasActive)
                 Notifier.Show(new Alert("heat-abort", AlertSeverity.Critical, "Ajustes de jogo pausados",
-                    "Por segurança, o PC Max reverteu os ajustes de desempenho até a temperatura baixar.", DateTimeOffset.Now));
+                    "Por segurança, o PC Max reverteu os ajustes de desempenho deste jogo. Voltam a ser aplicados da próxima vez que abrires um jogo.", DateTimeOffset.Now));
             RaiseGameStatus();
         }
         catch (Exception ex) { AppLog.Error("Falha ao pausar modo jogo por temperatura", ex); }
@@ -189,15 +190,32 @@ public sealed class AppHost : IDisposable
     {
         Engine.MaxAllowedRisk = c.New.MaxRisk;
         if (c.Old.Temperatures != c.New.Temperatures) Alerts.Thresholds = c.New.Temperatures;
-        if (c.Old.StartWithWindows != c.New.StartWithWindows) SyncAutostart(c.New.StartWithWindows);
+        // schtasks.exe can take seconds: never on the UI thread (settings change on it).
+        // Each run reads the latest value, so quick on/off toggles always end in the last state.
+        if (c.Old.StartWithWindows != c.New.StartWithWindows)
+            _ = Task.Run(() => SyncAutostart(Settings.Current.StartWithWindows));
         if (c.Old.AutoGameMode != c.New.AutoGameMode)
         {
-            if (!c.New.AutoGameMode && IsGameActive) _ = Task.Run(() => Games.AbortAsync());
+            if (!c.New.AutoGameMode) _ = Task.Run(AbortQuietlyAsync);
             RaiseGameStatus();
         }
     }
 
+    private async Task AbortQuietlyAsync()
+    {
+        try { await Games.AbortAsync().ConfigureAwait(false); }
+        catch (Exception ex) { AppLog.Error("Falha ao desligar o modo jogo", ex); }
+        RaiseGameStatus();
+    }
+
+    private readonly object _autostartGate = new();
+
     private void SyncAutostart(bool on)
+    {
+        lock (_autostartGate) SyncAutostartCore(on);
+    }
+
+    private void SyncAutostartCore(bool on)
     {
         try
         {
@@ -220,7 +238,10 @@ public sealed class AppHost : IDisposable
         }
     }
 
-    /// <summary>Called before exit: undo the game session so nothing stays changed.</summary>
+    /// <summary>
+    /// Called before exit: undo the game session, and any game-session tweak still applied without one
+    /// (e.g. kept by a benchmark), so nothing stays changed after the app closes.
+    /// </summary>
     public async Task ShutdownAsync()
     {
         _sensorTimer?.Dispose();
@@ -229,9 +250,23 @@ public sealed class AppHost : IDisposable
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            if (IsGameActive) await Games.AbortAsync(cts.Token).ConfigureAwait(false);
+            await Games.AbortAsync(cts.Token).ConfigureAwait(false);
         }
         catch (Exception ex) { AppLog.Error("Falha ao reverter sessão de jogo ao sair", ex); }
+    }
+
+    /// <summary>Synchronous, time-capped version of <see cref="ShutdownAsync"/> for crash handlers and Windows logoff.</summary>
+    public void EmergencyRevert(TimeSpan timeout)
+    {
+        try
+        {
+            _sensorTimer?.Dispose();
+            try { Platform.GameWatcher.Stop(); } catch { }
+            using var cts = new CancellationTokenSource(timeout);
+            Task.Run(() => Games.AbortAsync(cts.Token)).Wait(timeout);
+        }
+        catch (Exception ex) { AppLog.Error("Reversão de emergência falhou", ex); }
+        try { Settings.Flush(); } catch { }
     }
 
     public void Dispose()
@@ -249,9 +284,7 @@ public static class AppHostFactory
     /// <summary>Builds the full runtime for this machine (real platform on Windows, fakes elsewhere).</summary>
     public static AppHost Create(AppPaths paths, SettingsService settings, INotifier notifier, IUiDispatcher ui)
     {
-        try { PlatformFactory.ResumeLeftovers(paths); }
-        catch (Exception ex) { AppLog.Error("Falha ao retomar apps suspensas de uma sessão anterior", ex); }
-
+        // Leftover suspended apps are resumed inside PlatformFactory.Create (WindowsPlatform.Create).
         var platform = PlatformFactory.Create(paths, () => settings.Current);
         ISnapshotStore store = PlatformFactory.UseFake ? new InMemorySnapshotStore() : new JsonSnapshotStore(paths.SnapshotsFile);
         ILoadGenerator load = PlatformFactory.UseFake ? new FakeLoadGenerator() : new HttpDownloadLoad();

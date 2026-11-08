@@ -53,29 +53,58 @@ public static class DoctorEngine
         }
     }
 
+    /// <summary>JEDEC default data rates (MT/s) a board falls back to when XMP/EXPO is off.</summary>
+    private static readonly int[] JedecRates = { 1600, 1866, 2133, 2400, 2666, 2933, 3200, 4000, 4400, 4800, 5200, 5600, 6000, 6400 };
+
+    /// <summary>
+    /// Win32_PhysicalMemory reports both speeds through SMBIOS, with two traps:
+    /// <list type="bullet">
+    /// <item>before SMBIOS 3.1.1, "Configured Memory Clock Speed" is the clock in MHz (half the MT/s data rate),
+    /// while "Speed" is in MT/s: 1333 next to 2666 means the RAM runs at its rated speed;</item>
+    /// <item>"Speed" is usually the module's JEDEC speed, not the XMP/EXPO speed on the box, so a module running
+    /// with XMP on reports configured &gt; rated, and XMP off often reports configured == rated.</item>
+    /// </list>
+    /// So this only flags the case it can tell apart: RAM running at a JEDEC default clearly below what the modules
+    /// report they support. Laptops are skipped (soldered RAM, no XMP option), and the wording says "probably":
+    /// the CPU or board may also cap the speed (4 modules, B/H chipsets, older CPUs).
+    /// </summary>
+    internal static (int Configured, int Rated)? RamSpeedGap(HardwareProfile p)
+    {
+        if (p.IsLaptop) return null;
+        var mods = p.MemoryModules.Where(m => m.ConfiguredSpeedMhz > 0 && m.RatedSpeedMhz > 0).ToList();
+        if (mods.Count == 0) return null;
+        var configured = mods.Min(m => NormalizeConfigured(m.ConfiguredSpeedMhz!.Value, m.RatedSpeedMhz!.Value));
+        var rated = mods.Min(m => m.RatedSpeedMhz!.Value);
+        if (rated - configured < 400) return null;
+        if (!JedecRates.Any(j => Math.Abs(j - configured) <= 10)) return null;
+        return (configured, rated);
+    }
+
+    /// <summary>Doubles a configured speed that was reported as a clock (MHz) instead of a data rate (MT/s).</summary>
+    internal static int NormalizeConfigured(int configured, int rated)
+    {
+        var doubled = configured * 2;
+        return Math.Abs(doubled - rated) <= rated * 0.03 ? doubled : configured;
+    }
+
     private static void CheckRamSpeed(HardwareProfile p, List<Finding> f)
     {
-        var mods = p.MemoryModules.Where(m => m.ConfiguredSpeedMhz > 0 && m.RatedSpeedMhz > 0).ToList();
-        if (mods.Count == 0) return;
-        var configured = mods.Min(m => m.ConfiguredSpeedMhz!.Value);
-        var rated = mods.Min(m => m.RatedSpeedMhz!.Value);
-        // JEDEC base speeds: DDR4 2133/2400, DDR5 4800. If running well below the rated (XMP/EXPO) speed, flag it.
-        if (rated - configured >= 400)
-        {
-            f.Add(new Finding(
-                "ram-xmp",
-                FindingSeverity.Critical,
-                $"RAM a {configured} MHz em vez de {rated} MHz (XMP/EXPO desligado)",
-                "A tua memória foi feita para trabalhar mais rápido, mas o perfil XMP (Intel) ou EXPO (AMD) está desligado no BIOS. Isto é dos maiores ganhos possíveis em jogos que dependem do CPU.",
-                "+10–25% nos 1% lows (menos travões) em muitos jogos",
-                FixAction.Guide(
-                    "Reinicia o PC e entra no BIOS (normalmente a tecla DEL ou F2 durante o arranque).",
-                    "Procura a opção XMP, EXPO, DOCP ou A-XMP (muitas vezes em 'AI Tweaker', 'Extreme Tweaker' ou 'OC').",
-                    "Ativa o Perfil 1.",
-                    "Guarda e sai (normalmente F10).",
-                    "Se o PC não arrancar, ele volta sozinho às definições anteriores após 3 tentativas. Nesse caso, tenta o Perfil 2 ou mantém desligado."),
-                90));
-        }
+        if (RamSpeedGap(p) is not { } gap) return;
+        f.Add(new Finding(
+            "ram-xmp",
+            FindingSeverity.Problem,
+            $"RAM a {gap.Configured} MT/s; os módulos indicam {gap.Rated} MT/s",
+            "A memória parece estar na velocidade base (JEDEC), abaixo do que os módulos indicam. Normalmente isto quer dizer que o perfil XMP (Intel) " +
+            "ou EXPO (AMD) está desligado no BIOS. Em alguns PCs é o processador ou a motherboard que limitam a velocidade (por exemplo, com 4 módulos); " +
+            "nesse caso não há nada a mudar. Confirma a velocidade da caixa ou do fabricante antes de mexer no BIOS.",
+            "Muitas vezes +5–20% nos 1% lows (menos travões) em jogos que dependem do CPU",
+            FixAction.Guide(
+                "Reinicia o PC e entra no BIOS (normalmente a tecla DEL ou F2 durante o arranque).",
+                "Procura a opção XMP, EXPO, DOCP ou A-XMP (muitas vezes em 'AI Tweaker', 'Extreme Tweaker' ou 'OC').",
+                "Ativa o Perfil 1.",
+                "Guarda e sai (normalmente F10).",
+                "Se o PC não arrancar, ele volta sozinho às definições anteriores após 3 tentativas. Nesse caso, tenta o Perfil 2 ou mantém desligado."),
+            75));
     }
 
     private static void CheckRamChannels(HardwareProfile p, List<Finding> f)

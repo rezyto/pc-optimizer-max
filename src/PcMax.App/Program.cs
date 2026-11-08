@@ -65,6 +65,7 @@ public static class Program
         catch (Exception ex)
         {
             AppLog.Error("Erro fatal", ex);
+            App.EmergencyRevert(); // undo the game session before telling the user it was undone
             ShowFatal("O PC Max encontrou um erro e vai fechar. As alterações de jogo foram revertidas.\n\nDetalhes nos registos: " + paths.LogsDir);
             return 1;
         }

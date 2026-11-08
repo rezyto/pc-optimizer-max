@@ -8,7 +8,10 @@ namespace PcMax.Windows.Tweaks;
 
 /// <summary>
 /// Sets every attached monitor to the highest refresh rate it offers at its current resolution.
-/// Snapshot: one entry per GDI device name -> "hz|width|height" before the change.
+/// Snapshot: one entry per GDI device name -> "hz|width|height|monitorId" before the change. The monitor id
+/// (device interface path) is what the revert matches on, so a renumbered \\.\DISPLAYn never gets another
+/// monitor's old rate. Old snapshots without the id fall back to the GDI name.
+/// Applying is all-or-nothing per call: if a later display throws, the ones already changed are put back.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal sealed partial class MaxRefreshTweak : ITweak
@@ -37,26 +40,44 @@ internal sealed partial class MaxRefreshTweak : ITweak
 
     public Task<TweakSnapshot> ApplyAsync(CancellationToken ct = default) => Task.Run(() =>
     {
+        // No cancellation once the first display changed: a partial change must always end up in the snapshot.
+        ct.ThrowIfCancellationRequested();
         var previous = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var changed = new List<DisplayState>();
         var failures = new List<string>();
-        foreach (var d in Displays.List())
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            if (d.MaxHz <= d.CurrentHz) continue;
-            previous[d.DeviceName] = string.Create(CultureInfo.InvariantCulture, $"{d.CurrentHz}|{d.Width}|{d.Height}");
-            if (!Displays.TrySetRefreshRate(d.DeviceName, d.MaxHz))
+            foreach (var d in Displays.List())
             {
-                previous.Remove(d.DeviceName);
-                failures.Add(d.FriendlyName);
+                if (d.MaxHz <= d.CurrentHz) continue;
+                if (!Displays.TrySetRefreshRate(d.DeviceName, d.MaxHz))
+                {
+                    failures.Add(d.FriendlyName);
+                    continue;
+                }
+                changed.Add(d);
+                previous[d.DeviceName] = Encode(d.CurrentHz, d.Width, d.Height, d.MonitorId);
             }
+        }
+        catch
+        {
+            foreach (var d in changed)
+            {
+                try { Displays.TrySetRefreshRate(d.DeviceName, d.CurrentHz); } catch { }
+            }
+            throw;
         }
         if (previous.Count == 0 && failures.Count > 0)
             throw new InvalidOperationException("O Windows recusou a nova frequência em: " + string.Join(", ", failures));
         return TweakSnapshot.Create(Id, previous);
-    }, ct);
+    }, CancellationToken.None);
+
+    private static string Encode(int hz, int w, int h, string? monitorId) => monitorId is null
+        ? string.Create(CultureInfo.InvariantCulture, $"{hz}|{w}|{h}")
+        : string.Create(CultureInfo.InvariantCulture, $"{hz}|{w}|{h}|{monitorId}");
 
     /// <summary>
-    /// Keys must be GDI display names ("\\.\DISPLAY1"), values "hz|width|height" with sane numbers (or null).
+    /// Keys must be GDI display names ("\\.\DISPLAY1"), values "hz|width|height[|monitorId]" with sane numbers (or null).
     /// </summary>
     public bool AcceptsSnapshot(TweakSnapshot snapshot)
     {
@@ -78,22 +99,35 @@ internal sealed partial class MaxRefreshTweak : ITweak
     [GeneratedRegex(@"^\\\\\.\\DISPLAY[0-9]{1,3}$", RegexOptions.CultureInvariant)]
     private static partial Regex DeviceRegex();
 
-    [GeneratedRegex(@"^([0-9]{1,4})\|([0-9]{1,5})\|([0-9]{1,5})$", RegexOptions.CultureInvariant)]
+    // Monitor id: a device interface path; printable, no '|', capped.
+    [GeneratedRegex(@"^([0-9]{1,4})\|([0-9]{1,5})\|([0-9]{1,5})(?:\|([\x21-\x7B\x7D\x7E]{1,256}))?$", RegexOptions.CultureInvariant)]
     private static partial Regex EntryRegex();
 
     public Task RevertAsync(TweakSnapshot snapshot, CancellationToken ct = default) => Task.Run(() =>
     {
-        var current = Displays.List().ToDictionary(d => d.DeviceName, StringComparer.OrdinalIgnoreCase);
+        var displays = Displays.List();
+        var current = displays.ToDictionary(d => d.DeviceName, StringComparer.OrdinalIgnoreCase);
         var failures = new List<string>();
         foreach (var (device, value) in snapshot.PreviousValues)
         {
             if (value is null) continue;
-            var parts = value.Split('|');
-            if (parts.Length != 3 || !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var hz)
+            var parts = value.Split('|', 4);
+            if (parts.Length is not (3 or 4) || !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var hz)
                 || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var w)
                 || !int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var h))
                 continue;
-            if (!current.TryGetValue(device, out var d))
+            DisplayState? d;
+            if (parts.Length == 4)
+            {
+                // Match the monitor itself, wherever its GDI number is now.
+                d = displays.FirstOrDefault(x => string.Equals(x.MonitorId, parts[3], StringComparison.OrdinalIgnoreCase));
+                if (d is null)
+                {
+                    Log.Warn($"display.max-refresh: o monitor de {device} já não está ligado; nada a repor.");
+                    continue;
+                }
+            }
+            else if (!current.TryGetValue(device, out d))
             {
                 Log.Warn($"display.max-refresh: {device} já não está ligado; nada a repor.");
                 continue;
@@ -102,10 +136,10 @@ internal sealed partial class MaxRefreshTweak : ITweak
             var sameRes = (d.Width == w && d.Height == h) || (d.Width == h && d.Height == w);
             if (!sameRes || !d.AvailableHz.Contains(hz))
             {
-                Log.Warn($"display.max-refresh: {device} mudou de resolução; {hz} Hz não reposto.");
+                Log.Warn($"display.max-refresh: {d.DeviceName} mudou de resolução; {hz} Hz não reposto.");
                 continue;
             }
-            if (!Displays.TrySetRefreshRate(device, hz)) failures.Add(d.FriendlyName);
+            if (!Displays.TrySetRefreshRate(d.DeviceName, hz)) failures.Add(d.FriendlyName);
         }
         if (failures.Count > 0)
             throw new InvalidOperationException("Não foi possível repor a frequência em: " + string.Join(", ", failures));

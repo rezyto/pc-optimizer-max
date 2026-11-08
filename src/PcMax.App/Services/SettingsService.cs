@@ -12,6 +12,9 @@ public sealed class SettingsService : IDisposable
 {
     private readonly SettingsStore _store;
     private readonly object _gate = new();
+    // Serializes writes: two flushes (timer + exit) must never run at once, nor an older copy land after a newer one.
+    private readonly object _saveGate = new();
+    private bool _disposed;
     private readonly Timer _saveTimer;
     private AppSettings _current;
     private bool _dirty;
@@ -37,29 +40,37 @@ public sealed class SettingsService : IDisposable
         {
             old = _current;
             next = change(old).Normalize();
-            if (next == old) return;
+            if (next.SameAs(old)) return;
             _current = next;
             _dirty = true;
-            _saveTimer.Change(SaveDelay, Timeout.InfiniteTimeSpan);
+            if (!_disposed) _saveTimer.Change(SaveDelay, Timeout.InfiniteTimeSpan);
         }
         Changed?.Invoke(this, new SettingsChange(old, next));
     }
 
     public void Flush()
     {
-        AppSettings toSave;
-        lock (_gate)
+        lock (_saveGate)
         {
-            if (!_dirty) return;
-            _dirty = false;
-            toSave = _current;
+            AppSettings toSave;
+            lock (_gate)
+            {
+                if (!_dirty) return;
+                _dirty = false;
+                toSave = _current;
+            }
+            try { _store.Save(toSave); }
+            catch (Exception ex)
+            {
+                lock (_gate) _dirty = true; // try again on the next flush
+                AppLog.Error("Falha ao guardar definições", ex);
+            }
         }
-        try { _store.Save(toSave); }
-        catch (Exception ex) { AppLog.Error("Falha ao guardar definições", ex); }
     }
 
     public void Dispose()
     {
+        lock (_gate) _disposed = true;
         _saveTimer.Dispose();
         Flush();
     }

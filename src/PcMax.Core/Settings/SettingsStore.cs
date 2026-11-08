@@ -14,7 +14,7 @@ public sealed class SettingsStore
         try
         {
             if (!File.Exists(_path)) return new AppSettings().Normalize();
-            return Parse(AtomicFile.ReadAllTextCapped(_path));
+            return Parse(AtomicFile.WithRetry(() => AtomicFile.ReadAllTextCapped(_path)));
         }
         catch (Exception)
         {

@@ -53,6 +53,11 @@ public interface IProcessBooster
     /// </summary>
     IReadOnlyList<int> SuspendBackground(IEnumerable<string> processNames, int? excludePid = null);
     void ResumeAll(IEnumerable<int> processIds);
+    /// <summary>
+    /// True while <paramref name="processId"/> is still alive and still runs <paramref name="executableName"/>
+    /// (so a reused pid does not count). Implementations that cannot tell return true.
+    /// </summary>
+    bool IsRunning(int processId, string executableName) => true;
 }
 
 /// <summary>Shows a pop-up notification to the user.</summary>

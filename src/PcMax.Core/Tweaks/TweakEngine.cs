@@ -14,6 +14,8 @@ public sealed class TweakEngine
     private readonly List<TweakSnapshot> _active;
     private readonly List<HistoryEntry> _history = new();
     private readonly SemaphoreSlim _lock = new(1, 1);
+    // Guards _active and _history for readers on other threads (the UI). Writers also hold _lock.
+    private readonly object _stateGate = new();
 
     public TweakEngine(IEnumerable<ITweak> tweaks, ISnapshotStore store)
     {
@@ -54,11 +56,14 @@ public sealed class TweakEngine
     public event EventHandler<HistoryEntry>? HistoryAdded;
 
     public IReadOnlyCollection<ITweak> Tweaks => _tweaks.Values;
-    public IReadOnlyList<HistoryEntry> History => _history.ToList();
-    public IReadOnlyList<TweakSnapshot> ActiveSnapshots => _active.ToList();
+    public IReadOnlyList<HistoryEntry> History { get { lock (_stateGate) return _history.ToList(); } }
+    public IReadOnlyList<TweakSnapshot> ActiveSnapshots { get { lock (_stateGate) return _active.ToList(); } }
     public RiskLevel MaxAllowedRisk { get; set; } = RiskLevel.Safe;
 
-    public bool IsActive(string tweakId) => _active.Any(s => s.TweakId == tweakId);
+    /// <summary>Raised when saving the active snapshots failed (the change is kept in memory and saved on the next operation).</summary>
+    public event EventHandler<Exception>? PersistFailed;
+
+    public bool IsActive(string tweakId) { lock (_stateGate) return _active.Any(s => s.TweakId == tweakId); }
     public ITweak? Find(string id) => _tweaks.GetValueOrDefault(id);
 
     public async Task<HistoryEntry> ApplyAsync(string tweakId, CancellationToken ct = default)
@@ -79,10 +84,13 @@ public sealed class TweakEngine
             if (!supported)
                 return Record(tweak, HistoryAction.SkippedUnsupported, "Não suportado neste PC.");
 
+            // Once started, an apply is never cancelled half-way: a partial change without a snapshot
+            // could not be undone. The token only cancels the wait for the lock and the support check.
+            ct.ThrowIfCancellationRequested();
             TweakSnapshot snapshot;
             try
             {
-                snapshot = await tweak.ApplyAsync(ct).ConfigureAwait(false);
+                snapshot = await tweak.ApplyAsync(CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -92,15 +100,15 @@ public sealed class TweakEngine
             if (snapshot.TweakId != tweak.Id)
                 snapshot = snapshot with { TweakId = tweak.Id };
 
-            _active.Add(snapshot);
+            AddActive(snapshot);
             try
             {
-                _store.SaveActive(_active);
+                _store.SaveActive(ActiveSnapshots);
             }
             catch (Exception ex)
             {
                 // Cannot persist the undo information: undo now rather than leave an untracked change.
-                _active.Remove(snapshot);
+                RemoveActive(snapshot);
                 try { await tweak.RevertAsync(snapshot, CancellationToken.None).ConfigureAwait(false); } catch { /* best effort */ }
                 return Record(tweak, HistoryAction.Failed, "Não foi possível guardar o estado anterior: " + ex.Message);
             }
@@ -132,7 +140,7 @@ public sealed class TweakEngine
         try
         {
             var results = new List<HistoryEntry>();
-            foreach (var snap in _active.AsEnumerable().Reverse().ToList())
+            foreach (var snap in ActiveSnapshots.Reverse())
             {
                 if (filter is not null && !filter(snap)) continue;
                 results.Add(await RevertCoreAsync(snap.TweakId, ct).ConfigureAwait(false));
@@ -151,15 +159,16 @@ public sealed class TweakEngine
 
     private async Task<HistoryEntry> RevertCoreAsync(string tweakId, CancellationToken ct)
     {
-        var snapshot = _active.LastOrDefault(s => s.TweakId == tweakId);
+        TweakSnapshot? snapshot;
+        lock (_stateGate) snapshot = _active.LastOrDefault(s => s.TweakId == tweakId);
         var tweak = Find(tweakId);
         if (snapshot is null)
             return Record(tweakId, tweak?.Name ?? tweakId, HistoryAction.Reverted, "Não estava ativo.");
         if (tweak is null)
         {
             // Tweak removed from this version of the app: drop the orphan so it does not block anything.
-            _active.Remove(snapshot);
-            _store.SaveActive(_active);
+            RemoveActive(snapshot);
+            TrySave();
             return Record(tweakId, tweakId, HistoryAction.Failed, "Ajuste desconhecido nesta versão; registo removido.");
         }
 
@@ -171,9 +180,25 @@ public sealed class TweakEngine
         {
             return Record(tweak, HistoryAction.Failed, "Falha ao reverter: " + ex.Message);
         }
-        _active.Remove(snapshot);
-        _store.SaveActive(_active);
+        RemoveActive(snapshot);
+        TrySave();
         return Record(tweak, HistoryAction.Reverted);
+    }
+
+    private void AddActive(TweakSnapshot s) { lock (_stateGate) _active.Add(s); }
+    private void RemoveActive(TweakSnapshot s) { lock (_stateGate) _active.Remove(s); }
+
+    /// <summary>
+    /// Saving after a revert must never stop the other reverts: the change is already undone, and the
+    /// in-memory list is right. A failed save is reported and retried by the next operation.
+    /// </summary>
+    private void TrySave()
+    {
+        try { _store.SaveActive(ActiveSnapshots); }
+        catch (Exception ex)
+        {
+            try { PersistFailed?.Invoke(this, ex); } catch { }
+        }
     }
 
     private HistoryEntry Record(ITweak tweak, HistoryAction action, string? detail = null) =>
@@ -182,8 +207,11 @@ public sealed class TweakEngine
     private HistoryEntry Record(string id, string name, HistoryAction action, string? detail)
     {
         var entry = new HistoryEntry(DateTimeOffset.UtcNow, id, name, action, detail);
-        _history.Add(entry);
-        if (_history.Count > 1000) _history.RemoveAt(0);
+        lock (_stateGate)
+        {
+            _history.Add(entry);
+            if (_history.Count > 1000) _history.RemoveAt(0);
+        }
         HistoryAdded?.Invoke(this, entry);
         return entry;
     }

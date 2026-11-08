@@ -138,6 +138,18 @@ public partial class SettingsViewModel : PageViewModel
                 SustainSeconds = (int)SustainSeconds.Value,
             },
         });
+        // Normalize may have corrected the values (e.g. critical not above warning): show what is really stored.
+        // Posted, so the box being edited finishes its own update first.
+        _host.Ui.Post(() =>
+        {
+            var stored = _host.Settings.Current.Temperatures;
+            if ((double?)CpuWarning == stored.CpuWarning && (double?)CpuCritical == stored.CpuCritical
+                && (double?)GpuWarning == stored.GpuWarning && (double?)GpuCritical == stored.GpuCritical
+                && (int?)SustainSeconds == stored.SustainSeconds) return;
+            _loading = true;
+            try { LoadTemps(stored); }
+            finally { _loading = false; }
+        });
     }
 
     [RelayCommand]

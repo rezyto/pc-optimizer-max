@@ -9,12 +9,25 @@ public sealed class BenchmarkService
     private readonly IFrameCapture _capture;
     private readonly TweakEngine _engine;
     private readonly ChangeGuard _guard;
+    private readonly Func<int, bool> _sessionActiveFor;
 
-    public BenchmarkService(IFrameCapture capture, TweakEngine engine, ChangeGuard guard)
+    /// <param name="sessionActiveFor">True while game mode has an active session for that game pid.</param>
+    public BenchmarkService(IFrameCapture capture, TweakEngine engine, ChangeGuard guard, Func<int, bool>? sessionActiveFor = null)
     {
         _capture = capture;
         _engine = engine;
         _guard = guard;
+        _sessionActiveFor = sessionActiveFor ?? (_ => true);
+    }
+
+    /// <summary>
+    /// A game-session tweak may only stay on while game mode has a session for this game: otherwise nothing
+    /// would ever revert it (the game may have closed during the test, or game mode is off).
+    /// </summary>
+    private bool MayStayOn(string tweakId, int processId)
+    {
+        if (_engine.Find(tweakId) is not { GameSessionOnly: true }) return true;
+        try { return _sessionActiveFor(processId); } catch { return false; }
     }
 
     public bool IsAvailable => _capture.IsAvailable;
@@ -61,20 +74,23 @@ public sealed class BenchmarkService
         }
         catch (OperationCanceledException)
         {
-            await RestoreAsync(tweakId, wasActive).ConfigureAwait(false);
+            await RestoreAsync(tweakId, wasActive, processId).ConfigureAwait(false);
             throw;
         }
 
         if (withTweak is null || without is null)
         {
-            await RestoreAsync(tweakId, wasActive).ConfigureAwait(false);
+            await RestoreAsync(tweakId, wasActive, processId).ConfigureAwait(false);
             return NotEnoughFrames;
         }
 
         var cmp = BenchmarkComparison.Compare(without, withTweak);
         var keep = cmp.Verdict == BenchmarkVerdict.Better;
-        if (keep && !_engine.IsActive(tweakId)) await _engine.ApplyAsync(tweakId, CancellationToken.None).ConfigureAwait(false);
-        if (!keep && _engine.IsActive(tweakId)) await _engine.RevertAsync(tweakId, CancellationToken.None).ConfigureAwait(false);
+        var mayStay = MayStayOn(tweakId, processId);
+        if (keep && mayStay && !_engine.IsActive(tweakId)) await _engine.ApplyAsync(tweakId, CancellationToken.None).ConfigureAwait(false);
+        if ((!keep || !mayStay) && _engine.IsActive(tweakId)) await _engine.RevertAsync(tweakId, CancellationToken.None).ConfigureAwait(false);
+        if (keep && !mayStay)
+            return cmp.Summary + " Fica ativo automaticamente da próxima vez que jogares com o modo jogo ligado.";
         return cmp.Summary;
     }
 
@@ -84,10 +100,12 @@ public sealed class BenchmarkService
         FrameStats.FromFrameTimes(await _capture.CaptureAsync(pid, CaptureDuration, ct).ConfigureAwait(false));
 
     /// <summary>Puts the tweak back to how it was before the test.</summary>
-    private async Task RestoreAsync(string tweakId, bool wasActive)
+    private async Task RestoreAsync(string tweakId, bool wasActive, int processId)
     {
         try
         {
+            // Never re-apply a game-session tweak after its game closed (the session end already reverted it).
+            if (wasActive && !MayStayOn(tweakId, processId)) wasActive = false;
             if (wasActive && !_engine.IsActive(tweakId)) await _engine.ApplyAsync(tweakId, CancellationToken.None).ConfigureAwait(false);
             if (!wasActive && _engine.IsActive(tweakId)) await _engine.RevertAsync(tweakId, CancellationToken.None).ConfigureAwait(false);
         }
