@@ -206,6 +206,11 @@ public partial class GamesViewModel : PageViewModel
             Message = $"“{exe}” é um processo do sistema e não pode ser um jogo.";
             return;
         }
+        if (Core.Settings.ProcessNames.Clean(exe) is null)
+        {
+            Message = $"“{exe}” tem um nome que o PC Max não aceita (só letras, números, espaços e . _ - + ' ( )).";
+            return;
+        }
         var vm = AddProfile(exe);
         Message = $"“{vm.DisplayName}” adicionado. O modo jogo ativa quando o abrires.";
     }

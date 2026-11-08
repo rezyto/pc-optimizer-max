@@ -24,7 +24,31 @@ public sealed class TweakEngine
             if (!_tweaks.TryAdd(t.Id, t))
                 throw new ArgumentException($"Duplicate tweak id '{t.Id}'.", nameof(tweaks));
         }
-        _active = store.LoadActive().ToList();
+        _active = new List<TweakSnapshot>();
+        IReadOnlyList<TweakSnapshot> loaded;
+        try { loaded = store.LoadActive(); }
+        catch { loaded = Array.Empty<TweakSnapshot>(); }
+        foreach (var snap in loaded)
+        {
+            if (snap is null || string.IsNullOrEmpty(snap.TweakId) || snap.PreviousValues is null) { DiscardedSnapshots++; continue; }
+            // Unknown ids are kept (so RevertCore can drop them with a history entry); known ones must validate.
+            if (_tweaks.TryGetValue(snap.TweakId, out var t) && !SafeAccepts(t, snap)) { DiscardedSnapshots++; continue; }
+            if (_active.Any(a => a.TweakId == snap.TweakId)) { DiscardedSnapshots++; continue; } // only the first is the true original
+            _active.Add(snap);
+        }
+        if (DiscardedSnapshots > 0)
+        {
+            try { store.SaveActive(_active); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>Snapshots read from disk that were rejected as invalid or tampered (never reverted).</summary>
+    public int DiscardedSnapshots { get; }
+
+    private static bool SafeAccepts(ITweak t, TweakSnapshot s)
+    {
+        try { return t.AcceptsSnapshot(s); }
+        catch { return false; }
     }
 
     public event EventHandler<HistoryEntry>? HistoryAdded;

@@ -9,6 +9,29 @@ public sealed record GameProfile
     public bool HighPriority { get; init; } = true;
     public bool SuspendBackgroundApps { get; init; } = true;
     public IReadOnlyList<string> TweakIds { get; init; } = new[] { "power.high-performance" };
+
+    /// <summary>
+    /// Makes a profile read from disk safe to use: null lists become empty, the exe name must be a plain
+    /// file name ("game.exe", no folders), strings are capped. Returns null if the profile is unusable.
+    /// </summary>
+    public GameProfile? Normalize()
+    {
+        var exe = (ExecutableName ?? "").Trim();
+        if (!exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) exe += ".exe";
+        if (!Settings.ProcessNames.IsValid(exe[..^4])) return null;
+        var name = (DisplayName ?? "").Trim();
+        if (name.Length > 100) name = name[..100];
+        return this with
+        {
+            ExecutableName = exe,
+            DisplayName = name,
+            TweakIds = (TweakIds ?? Array.Empty<string>())
+                .Where(t => !string.IsNullOrWhiteSpace(t) && t.Length <= 100)
+                .Distinct(StringComparer.Ordinal)
+                .Take(32)
+                .ToList(),
+        };
+    }
 }
 
 public sealed record GameEvent(string ExecutableName, int ProcessId, string? DisplayName);
@@ -40,7 +63,6 @@ public static class KnownGames
         ["Overwatch.exe"] = "Overwatch 2",
         ["dota2.exe"] = "Dota 2",
         ["RobloxPlayerBeta.exe"] = "Roblox",
-        ["javaw.exe"] = "Minecraft (Java)",
         ["Minecraft.Windows.exe"] = "Minecraft (Bedrock)",
         ["FC25.exe"] = "EA Sports FC 25",
         ["FC26.exe"] = "EA Sports FC 26",

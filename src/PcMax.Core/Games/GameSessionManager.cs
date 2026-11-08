@@ -42,7 +42,7 @@ public sealed class GameSessionManager
         }
         profile ??= new GameProfile { ExecutableName = game.ExecutableName, DisplayName = game.DisplayName ?? game.ExecutableName };
 
-        foreach (var id in profile.TweakIds)
+        foreach (var id in profile.TweakIds ?? Array.Empty<string>())
         {
             if (_engine.Find(id) is null) continue;
             await _engine.ApplyAsync(id, ct).ConfigureAwait(false);
@@ -57,7 +57,7 @@ public sealed class GameSessionManager
         IReadOnlyList<int> suspended = Array.Empty<int>();
         if (profile.SuspendBackgroundApps && s.BackgroundAppsToSuspend.Count > 0)
         {
-            try { suspended = _booster.SuspendBackground(s.BackgroundAppsToSuspend); } catch { }
+            try { suspended = _booster.SuspendBackground(s.BackgroundAppsToSuspend, game.ProcessId); } catch { }
         }
 
         lock (_gate) _current = new Session(game, prev, suspended);
@@ -97,5 +97,5 @@ public sealed class GameSessionManager
     }
 
     private static GameProfile? FindProfile(AppSettings s, string exe) =>
-        s.Games.FirstOrDefault(g => string.Equals(g.ExecutableName, exe, StringComparison.OrdinalIgnoreCase));
+        s.Games.FirstOrDefault(g => g is not null && string.Equals(g.ExecutableName, exe, StringComparison.OrdinalIgnoreCase));
 }

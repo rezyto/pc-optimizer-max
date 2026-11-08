@@ -22,7 +22,7 @@ public sealed class FakeProcessBooster : IProcessBooster
 {
     public string? BoostGame(int processId) => "Normal";
     public void RestoreGame(int processId, string? previousPriority) { }
-    public IReadOnlyList<int> SuspendBackground(IEnumerable<string> processNames) => new[] { 4242, 4343 };
+    public IReadOnlyList<int> SuspendBackground(IEnumerable<string> processNames, int? excludePid = null) => new[] { 4242, 4343 };
     public void ResumeAll(IEnumerable<int> processIds) { }
 }
 

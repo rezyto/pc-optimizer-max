@@ -56,7 +56,7 @@ public sealed class ProcessBooster : IProcessBooster
 
     // ------------------------------------------------------------------ suspend / resume
 
-    public IReadOnlyList<int> SuspendBackground(IEnumerable<string> processNames)
+    public IReadOnlyList<int> SuspendBackground(IEnumerable<string> processNames, int? excludePid = null)
     {
         var names = processNames
             .Where(n => !string.IsNullOrWhiteSpace(n))
@@ -85,7 +85,7 @@ public sealed class ProcessBooster : IProcessBooster
                 {
                     try
                     {
-                        if (p.Id == ownPid || p.Id <= 4) continue;
+                        if (p.Id == ownPid || p.Id <= 4 || p.Id == excludePid) continue; // never the game itself
                         if (Core.Settings.ProtectedProcesses.IsProtected(p.ProcessName)) continue;
                         if (records.Any(r => r.Pid == p.Id)) continue; // already suspended by us
                         if (p.SessionId != mySession) continue;

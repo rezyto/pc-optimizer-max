@@ -14,11 +14,13 @@ public sealed class SettingsStore
         try
         {
             if (!File.Exists(_path)) return new AppSettings().Normalize();
-            var s = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_path), JsonDefaults.Options);
+            var s = JsonSerializer.Deserialize<AppSettings>(AtomicFile.ReadAllTextCapped(_path), JsonDefaults.Options);
             return (s ?? new AppSettings()).Normalize();
         }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or NotSupportedException)
+        catch (Exception)
         {
+            // Anything wrong with the file (corrupt, too big, nulls where objects belong, no access):
+            // keep a copy for diagnosis and start with defaults. Never let a bad file stop the app.
             AtomicFile.Backup(_path);
             return new AppSettings().Normalize();
         }

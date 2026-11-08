@@ -191,6 +191,11 @@ public partial class SettingsViewModel : PageViewModel
         var name = NewBackgroundApp.Trim();
         if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) name = name[..^4];
         if (name.Length == 0) return;
+        if (ProcessNames.Clean(name) is null)
+        {
+            BackgroundAppError = "Nome inválido: escreve só o nome do programa (ex.: Spotify), sem pastas nem símbolos.";
+            return;
+        }
         if (ProtectedProcesses.IsProtected(name))
         {
             BackgroundAppError = $"“{name}” é essencial ao Windows ou ao anti-cheat e nunca é fechado.";

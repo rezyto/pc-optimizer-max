@@ -5,6 +5,9 @@ namespace PcMax.Core.Settings;
 
 public sealed record AppSettings
 {
+    public const int MaxBackgroundApps = 100;
+    public const int MaxGames = 200;
+
     public int SchemaVersion { get; init; } = 1;
 
     // Startup and behaviour
@@ -29,30 +32,45 @@ public sealed record AppSettings
     // Privacy: nothing leaves the PC unless this is true. Off by default.
     public bool ShareAnonymousStats { get; init; } = false;
 
-    // Background apps that the game mode may close (by process name, without .exe). User-editable.
+    // Background apps that the game mode may pause (by process name, without .exe). User-editable.
+    // Game launchers are deliberately NOT here: some games (e.g. Fortnite/EOS) need them running.
     public IReadOnlyList<string> BackgroundAppsToSuspend { get; init; } = new[]
     {
-        "OneDrive", "Teams", "ms-teams", "Spotify", "EpicGamesLauncher", "Dropbox", "GoogleDriveFS",
+        "OneDrive", "Teams", "ms-teams", "Spotify", "Dropbox", "GoogleDriveFS",
     };
 
     public IReadOnlyList<Games.GameProfile> Games { get; init; } = Array.Empty<Games.GameProfile>();
 
+    /// <summary>
+    /// Makes settings read from disk safe: every null becomes its default, lists are capped,
+    /// process names must be plain names and protected processes are removed. Never throws.
+    /// </summary>
     public AppSettings Normalize()
     {
-        var t = Temperatures.Normalize();
-        var host = string.IsNullOrWhiteSpace(NetworkTestHost) || NetworkTestHost.Length > 253 ? "1.1.1.1" : NetworkTestHost.Trim();
+        var t = (Temperatures ?? new TemperatureThresholds()).Normalize();
+        var host = string.IsNullOrWhiteSpace(NetworkTestHost) || NetworkTestHost.Trim().Length > 253 ? "1.1.1.1" : NetworkTestHost.Trim();
+        var games = (Games ?? Array.Empty<Games.GameProfile>())
+            .Where(g => g is not null)
+            .Select(g => g!.Normalize())
+            .Where(g => g is not null)
+            .Select(g => g!)
+            .GroupBy(g => g.ExecutableName, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .Take(MaxGames)
+            .ToList();
         return this with
         {
             Temperatures = t,
             NetworkTestHost = host,
             MaxRisk = Enum.IsDefined(MaxRisk) ? MaxRisk : RiskLevel.Safe,
             BackgroundAppsToSuspend = (BackgroundAppsToSuspend ?? Array.Empty<string>())
-                .Where(n => !string.IsNullOrWhiteSpace(n))
-                .Select(n => n.Trim())
-                .Where(n => !ProtectedProcesses.IsProtected(n))
+                .Select(ProcessNames.Clean)
+                .Where(n => n is not null && !ProtectedProcesses.IsProtected(n))
+                .Select(n => n!)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(MaxBackgroundApps)
                 .ToList(),
-            Games = Games ?? Array.Empty<Games.GameProfile>(),
+            Games = games,
         };
     }
 }

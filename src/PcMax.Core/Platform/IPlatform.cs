@@ -28,7 +28,10 @@ public interface IHardwareInspector
 public interface IAutostart
 {
     bool IsEnabled();
-    /// <summary>Registers the app to start elevated at logon without a UAC prompt (Task Scheduler, highest privileges).</summary>
+    /// <summary>
+    /// Registers the app to start elevated at logon without a UAC prompt (Task Scheduler, highest privileges).
+    /// Refuses (throws) when the executable's folder could be modified by a non-administrator.
+    /// </summary>
     void Enable(string exePath);
     void Disable();
 }
@@ -44,8 +47,11 @@ public interface IProcessBooster
     /// <summary>Raises the game's priority. Returns the previous priority so it can be restored.</summary>
     string? BoostGame(int processId);
     void RestoreGame(int processId, string? previousPriority);
-    /// <summary>Suspends background apps by name (never protected processes). Returns the PIDs suspended.</summary>
-    IReadOnlyList<int> SuspendBackground(IEnumerable<string> processNames);
+    /// <summary>
+    /// Suspends background apps by name (never protected, elevated or system processes). Returns the PIDs suspended.
+    /// <paramref name="excludePid"/> (the game) and every process in its parent chain are never suspended.
+    /// </summary>
+    IReadOnlyList<int> SuspendBackground(IEnumerable<string> processNames, int? excludePid = null);
     void ResumeAll(IEnumerable<int> processIds);
 }
 

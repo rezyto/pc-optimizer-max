@@ -34,6 +34,13 @@ public interface ITweak
     /// <summary>Applies the change and returns everything needed to undo it.</summary>
     Task<TweakSnapshot> ApplyAsync(CancellationToken ct = default);
     Task RevertAsync(TweakSnapshot snapshot, CancellationToken ct = default);
+
+    /// <summary>
+    /// Whether a snapshot read from disk is one this tweak could have produced (only its own keys, values in
+    /// the expected format). Snapshots that fail this check are discarded and never reverted, so a tampered
+    /// state file cannot make the app write arbitrary values.
+    /// </summary>
+    bool AcceptsSnapshot(TweakSnapshot snapshot) => snapshot.PreviousValues is not null;
 }
 
 /// <summary>The state a tweak replaced. Persisted to disk so it survives crashes and reboots.</summary>
