@@ -9,7 +9,10 @@ namespace PcMax.Windows.Cleaning;
 /// <summary>
 /// Disk cleanup. Safety rules, applied to every file and folder:
 /// - reparse points (symlinks, junctions, mount points) are never followed nor deleted;
-/// - nothing outside the category root is touched (checked on the full path);
+/// - nothing outside the category root is touched: each item is opened without following links,
+///   its real path (from the handle) is checked against the root's real path, and it is deleted
+///   through that same handle, so a folder swapped for a junction mid-run cannot redirect a delete;
+/// - roots come from trusted sources (HKLM profile path, GetWindowsDirectory), not TMP/TEMP;
 /// - recursion depth is capped; files in use or without permission are skipped;
 /// - temp-like folders only lose files older than 24 h.
 /// </summary>
@@ -22,7 +25,9 @@ internal sealed class Cleaner : ICleaner
     private sealed record Category(string Id, string Name, string Description, bool SafeByDefault,
         TimeSpan MinAge, Func<IEnumerable<string>> Roots, string Pattern = "*", bool Recursive = true);
 
-    private static string Local => Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    // Roots come from sources a normal user cannot redirect: the profile path in HKLM (not the
+    // TMP/TEMP variables or HKCU shell folders) and GetWindowsDirectory.
+    private static string Local => TrustedPaths.LocalAppData ?? "";
     private static string WinDir => Environment.GetFolderPath(Environment.SpecialFolder.Windows);
     private static string ProgramData => Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
 
@@ -32,10 +37,10 @@ internal sealed class Cleaner : ICleaner
     {
         new("user-temp", "Ficheiros temporários (utilizador)",
             "Ficheiros que os programas deixam na tua pasta temporária. Só são apagados os que têm mais de 24 horas.",
-            true, Day, () => new[] { Path.GetTempPath() }),
+            true, Day, () => TrustedPaths.LocalAppData is { } l ? new[] { Path.Combine(l, "Temp") } : Array.Empty<string>()),
         new("windows-temp", "Ficheiros temporários do Windows",
             "Ficheiros temporários do próprio Windows e de instaladores. Só são apagados os que têm mais de 24 horas.",
-            true, Day, () => new[] { Path.Combine(WinDir, "Temp") }),
+            false, Day, () => new[] { Path.Combine(WinDir, "Temp") }),
         new("windows-update-cache", "Cache do Windows Update",
             "Atualizações já descarregadas pelo Windows. Pode libertar vários GB, mas se houver uma atualização pendente, o Windows volta a descarregá-la.",
             false, Day, () => new[] { Path.Combine(WinDir, "SoftwareDistribution", "Download") }),
@@ -56,7 +61,7 @@ internal sealed class Cleaner : ICleaner
             false, TimeSpan.Zero, () => new[] { Path.Combine(Local, "Microsoft", "Windows", "Explorer") }, "thumbcache_*.db", Recursive: false),
         new("crash-dumps", "Relatórios de erros e despejos de memória",
             "Ficheiros criados quando um programa ou o Windows falha. Só servem para diagnóstico e podem ocupar muito espaço. Só são apagados os que têm mais de 24 horas.",
-            true, Day, () => new[]
+            false, Day, () => new[]
             {
                 Path.Combine(Local, "CrashDumps"),
                 Path.Combine(WinDir, "Minidump"),
@@ -73,7 +78,7 @@ internal sealed class Cleaner : ICleaner
             ct.ThrowIfCancellationRequested();
             long bytes = 0;
             int files = 0;
-            foreach (var f in Candidates(c, ct)) { bytes += f.Length; files++; }
+            foreach (var f in Candidates(c, SafeRoots(c), ct)) { bytes += f.Length; files++; }
             result.Add(new CleanupCategory(c.Id, c.Name, c.Description, bytes, files, c.SafeByDefault));
         }
         var (rbBytes, rbItems) = QueryRecycleBin();
@@ -93,12 +98,19 @@ internal sealed class Cleaner : ICleaner
             {
                 ct.ThrowIfCancellationRequested();
                 long catFreed = 0;
-                foreach (var f in Candidates(c, ct).ToList())
+                foreach (var root in SafeRoots(c))
                 {
-                    ct.ThrowIfCancellationRequested();
-                    if (TryDelete(f)) catFreed += f.Length;
+                    // Hold the root open (no delete sharing) so it cannot be swapped during the run,
+                    // and resolve its real path once.
+                    using var rootLock = SafeDelete.OpenRoot(root, out var rootFinal);
+                    if (rootLock is null || rootFinal is null) continue;
+                    foreach (var f in Candidates(c, new[] { root }, ct).ToList())
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        if (SafeDelete.TryDelete(f.FullName, rootFinal, isDirectory: false, c.MinAge)) catFreed += f.Length;
+                    }
+                    if (c.Recursive) RemoveEmptyDirectories(c, root, rootFinal, ct);
                 }
-                if (c.Recursive) RemoveEmptyDirectories(c, ct);
                 Log.Info($"Limpeza {c.Id}: {catFreed / 1024.0 / 1024:0.0} MB libertados");
                 freed += catFreed;
             }
@@ -110,10 +122,10 @@ internal sealed class Cleaner : ICleaner
     // ------------------------------------------------------------------ file walking
 
     /// <summary>Files eligible for deletion in a category (never via a reparse point, never outside the root).</summary>
-    private static IEnumerable<FileInfo> Candidates(Category c, CancellationToken ct)
+    private static IEnumerable<FileInfo> Candidates(Category c, IEnumerable<string> roots, CancellationToken ct)
     {
         var cutoff = DateTime.UtcNow - c.MinAge;
-        foreach (var rootPath in SafeRoots(c))
+        foreach (var rootPath in roots)
         {
             var rootPrefix = rootPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
             var stack = new Stack<(DirectoryInfo Dir, int Depth)>();
@@ -184,29 +196,9 @@ internal sealed class Cleaner : ICleaner
     private static bool IsInside(string path, string rootPrefix) =>
         path.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase) && !path.Contains(@"\..\", StringComparison.Ordinal);
 
-    private static bool TryDelete(FileInfo f)
-    {
-        try
-        {
-            f.Refresh();
-            if (!f.Exists || (f.Attributes & FileAttributes.ReparsePoint) != 0) return false;
-            if ((f.Attributes & FileAttributes.ReadOnly) != 0) f.Attributes &= ~FileAttributes.ReadOnly;
-            f.Delete();
-            return true;
-        }
-        catch (IOException) { return false; }                 // in use
-        catch (UnauthorizedAccessException) { return false; } // no permission
-        catch (Exception ex)
-        {
-            Log.Warn($"Limpeza: não foi possível apagar {f.FullName}", ex);
-            return false;
-        }
-    }
-
     /// <summary>Deletes empty sub-folders (deepest first). The roots themselves are kept.</summary>
-    private static void RemoveEmptyDirectories(Category c, CancellationToken ct)
+    private static void RemoveEmptyDirectories(Category c, string root, string rootFinal, CancellationToken ct)
     {
-        foreach (var root in SafeRoots(c))
         {
             var rootPrefix = root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
             var cutoff = DateTime.UtcNow - c.MinAge;
@@ -240,7 +232,8 @@ internal sealed class Cleaner : ICleaner
                     if (!d.Exists || (d.Attributes & FileAttributes.ReparsePoint) != 0) continue;
                     if (c.MinAge > TimeSpan.Zero && d.CreationTimeUtc > cutoff) continue;
                     if (d.EnumerateFileSystemInfos().Any()) continue;
-                    d.Delete(recursive: false);
+                    // Deleting through a handle fails on a non-empty folder, so nothing inside can be lost.
+                    SafeDelete.TryDelete(d.FullName, rootFinal, isDirectory: true, TimeSpan.Zero);
                 }
                 catch { /* in use or not empty */ }
             }
