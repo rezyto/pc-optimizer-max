@@ -14,8 +14,7 @@ public sealed class SettingsStore
         try
         {
             if (!File.Exists(_path)) return new AppSettings().Normalize();
-            var s = JsonSerializer.Deserialize<AppSettings>(AtomicFile.ReadAllTextCapped(_path), JsonDefaults.Options);
-            return (s ?? new AppSettings()).Normalize();
+            return Parse(AtomicFile.ReadAllTextCapped(_path));
         }
         catch (Exception)
         {
@@ -25,6 +24,13 @@ public sealed class SettingsStore
             return new AppSettings().Normalize();
         }
     }
+
+    /// <summary>
+    /// Parses and normalizes settings JSON with no side effects (no backup file). Throws <see cref="JsonException"/>
+    /// on malformed JSON; every field that is null or out of range becomes its default.
+    /// </summary>
+    public static AppSettings Parse(string json) =>
+        (JsonSerializer.Deserialize<AppSettings>(json, JsonDefaults.Options) ?? new AppSettings()).Normalize();
 
     public void Save(AppSettings settings) =>
         AtomicFile.WriteAllText(_path, JsonSerializer.Serialize(settings.Normalize(), JsonDefaults.Options));

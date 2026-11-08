@@ -11,7 +11,7 @@ namespace PcMax.App.Views;
 /// Pop-ups in the bottom-right corner of the primary screen: up to 3 stacked, hidden after 6 s
 /// (critical ones stay until clicked). Respects "notifications on" and "quiet while gaming".
 /// </summary>
-public sealed class ToastNotifier : INotifier
+public sealed class ToastNotifier : IActionNotifier
 {
     private const int MaxVisible = 3;
     private static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(6);
@@ -30,17 +30,22 @@ public sealed class ToastNotifier : INotifier
     }
 
     /// <summary>Thread-safe.</summary>
-    public void Show(Alert alert)
+    public void Show(Alert alert) => Show(alert, null, null);
+
+    /// <summary>Thread-safe. The pop-up gets a button that runs <paramref name="action"/> (UI thread) and closes it.</summary>
+    public void Show(Alert alert, string? actionText, Action? action)
     {
         if (!NotificationPolicy.ShouldShow(_settings.Current, _gameActive(), alert.Severity)) return;
         Dispatcher.UIThread.Post(() =>
         {
-            try { Add(alert); }
+            try { Add(alert, actionText, action); }
             catch (Exception ex) { AppLog.Warn("Falha ao mostrar notificação", ex); }
         });
     }
 
-    private void Add(Alert alert)
+    void IActionNotifier.Show(Alert alert, string actionText, Action action) => Show(alert, actionText, action);
+
+    private void Add(Alert alert, string? actionText, Action? action)
     {
         // Same alert already showing: replace it.
         foreach (var w in _open.Where(w => (w.DataContext as ToastViewModel)?.Alert.Key == alert.Key).ToList())
@@ -51,7 +56,7 @@ public sealed class ToastNotifier : INotifier
             victim.Close();
         }
 
-        var vm = new ToastViewModel(alert);
+        var vm = new ToastViewModel(alert, actionText, action);
         var win = new ToastWindow { DataContext = vm };
         win.Activated2 += (_, _) => _onActivate();
         win.Closed += (_, _) => { _open.Remove(win); Layout(); };

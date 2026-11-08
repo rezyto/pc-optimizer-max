@@ -4,7 +4,7 @@ namespace PcMax.Core.Settings;
 /// Where the app keeps its data. The app runs elevated, so its state must NOT live anywhere a normal
 /// user (or malware running as that user) can write: it lives in <c>%ProgramData%\PcMax</c>, which the
 /// Windows layer creates with an admin-only DACL and re-checks on every start
-/// (see <c>PcMax.Windows.Security.SecureDirectory</c>). The per-user folder used by older versions is
+/// (see <c>PcMax.Windows.SystemServices.SecureDataFolder</c>). The per-user folder used by older versions is
 /// only read once, for migration (<see cref="LegacyRoot"/>).
 /// </summary>
 public sealed class AppPaths

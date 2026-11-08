@@ -214,8 +214,9 @@ public sealed class AppHost : IDisposable
         catch (Exception ex)
         {
             AppLog.Error("Falha ao alterar o arranque com o Windows", ex);
-            Notifier.Show(new Alert("autostart", AlertSeverity.Warning, "Arranque com o Windows",
-                "Não foi possível alterar o arranque automático. Tenta de novo nas Definições.", DateTimeOffset.Now));
+            // InvalidOperationException carries a message written for the user (e.g. "not installed in Program Files").
+            var msg = ex is InvalidOperationException ? ex.Message : "Não foi possível alterar o arranque automático. Tenta de novo nas Definições.";
+            Notifier.Show(new Alert("autostart", AlertSeverity.Warning, "Arranque com o Windows", msg, DateTimeOffset.Now));
         }
     }
 

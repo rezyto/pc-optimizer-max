@@ -161,12 +161,14 @@
           <StackPanel>
             <TextBlock Classes="h2" Text="Atualizações e privacidade" Margin="0,0,0,6" />
             <Grid Classes="row" ColumnDefinitions="*,Auto">
-              <StackPanel><TextBlock Classes="label" Text="Atualizações automáticas" /><TextBlock Classes="muted" Text="Transfere em segundo plano e instala ao fechar a app." /></StackPanel>
+              <StackPanel><TextBlock Classes="label" Text="Atualizações automáticas" /><TextBlock Classes="muted" Text="Transfere e verifica em segundo plano. Instala quando escolheres ou no próximo arranque, nunca durante um jogo." /></StackPanel>
               <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoUpdate}" />
             </Grid>
-            <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,8">
-              <TextBlock Text="{Binding UpdateStatus}" Classes="muted" FontSize="12" VerticalAlignment="Center" Margin="0,0,12,0" />
-              <Button Grid.Column="1" Classes="ghost" Content="Procurar atualizações agora" Command="{Binding CheckUpdatesCommand}" />
+            <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,4,0,8">
+              <TextBlock Text="{Binding UpdateStatus}" Classes="muted" FontSize="12" VerticalAlignment="Center" Margin="0,0,12,0" TextWrapping="Wrap" />
+              <Button Grid.Column="1" Classes="primary" Content="Instalar agora" Command="{Binding InstallUpdateCommand}"
+                      IsVisible="{Binding UpdateReady}" Margin="0,0,8,0" />
+              <Button Grid.Column="2" Classes="ghost" Content="Procurar atualizações agora" Command="{Binding CheckUpdatesCommand}" />
             </Grid>
             <Separator />
             <Grid Classes="row" ColumnDefinitions="*,Auto">

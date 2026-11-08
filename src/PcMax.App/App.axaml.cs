@@ -47,14 +47,14 @@ public partial class App : Application
 
     private void StartApp(IClassicDesktopStyleApplicationLifetime desktop)
     {
-        var paths = Options.Paths ?? AppPaths.Default();
+        var paths = Options.Paths ?? PlatformFactory.DefaultPaths();
         var settings = new SettingsService(new SettingsStore(paths.SettingsFile));
         var ui = new AvaloniaUiDispatcher();
         var toasts = new ToastNotifier(settings, () => _host?.IsGameActive ?? false, ShowMainWindow);
 
         _host = AppHostFactory.Create(paths, settings, toasts, ui);
         _current = _host;
-        _host.Updates = new UpdateService(settings, toasts, () => _host.IsGameActive);
+        _host.Updates = new UpdateService(settings, toasts, () => _host?.IsGameActive ?? false, paths) { ExitApp = ExitAsync };
 
         _dialogs = new DialogService(() => _main is { IsVisible: true } ? _main : null);
         var vm = new MainWindowViewModel(_host, _dialogs);
@@ -81,7 +81,14 @@ public partial class App : Application
         var host = _host!;
         try
         {
-            await Task.Run(() => host.StartAsync(syncAutostart: host.Updates?.IsInstalled == true));
+            // An update downloaded in a previous run is installed now, before the game watcher starts.
+            if (host.Updates is { } updates && await Task.Run(updates.TryInstallPendingAtStartup))
+            {
+                await ExitAsync();
+                return;
+            }
+            // Only the installed copy (Program Files) registers the elevated logon task; dev builds never do.
+            await Task.Run(() => host.StartAsync(syncAutostart: PlatformFactory.IsInstalledCopy));
             host.Updates?.Start();
         }
         catch (Exception ex)
@@ -157,9 +164,7 @@ public partial class App : Application
         var host = _host;
         if (host is not null)
         {
-            var gameWasActive = host.IsGameActive;
             try { await Task.Run(host.ShutdownAsync); } catch (Exception ex) { AppLog.Error("Erro ao sair", ex); }
-            host.Updates?.ApplyOnExitIfReady(gameWasActive);
         }
         Cleanup();
         _main?.Close();

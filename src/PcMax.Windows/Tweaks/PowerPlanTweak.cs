@@ -89,6 +89,30 @@ internal sealed class PowerPlanTweak : ITweak
         Log.Info($"Plano de energia reposto: {restore}");
     }, ct);
 
+    /// <summary>Only our three keys; "previousScheme" must be a GUID, the others a GUID or null.</summary>
+    public bool AcceptsSnapshot(TweakSnapshot snapshot)
+    {
+        if (snapshot.TweakId != Id || snapshot.PreviousValues is not { Count: > 0 and <= 3 } values) return false;
+        foreach (var (key, value) in values)
+        {
+            switch (key)
+            {
+                case PreviousKey:
+                    if (!IsGuid(value)) return false;
+                    break;
+                case TargetKey:
+                case DuplicatedKey:
+                    if (value is not null && !IsGuid(value)) return false;
+                    break;
+                default:
+                    return false;
+            }
+        }
+        return values.ContainsKey(PreviousKey);
+    }
+
+    private static bool IsGuid(string? s) => s is { Length: 36 } && Guid.TryParseExact(s, "D", out var g) && g != Guid.Empty;
+
     private (Guid? Target, Guid? Duplicated) FindOrCreateTarget()
     {
         var schemes = PowerPlans.List();

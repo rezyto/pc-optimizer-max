@@ -1,13 +1,31 @@
 namespace PcMax.App.Services;
 
 /// <summary>
-/// One PC Max per machine: a named mutex. A second launch signals the first one (named event)
-/// to show its window, then exits.
+/// One PC Max per user session: a named mutex in the session-local namespace, named after the user's SID
+/// (<c>Local\PcMax-&lt;SID&gt;</c>), so another user or another session cannot pre-create or squat the names to
+/// block the app or fake a "show window" signal. A second launch signals the first one (named event) to show its
+/// window, then exits.
 /// </summary>
 public sealed class SingleInstance : IDisposable
 {
-    private const string MutexName = "Global\\PcMax-SingleInstance";
-    private const string EventName = "Global\\PcMax-ShowWindow";
+    private static readonly string BaseName = "Local\\PcMax-" + UserKey();
+    private static readonly string MutexName = BaseName;
+    private static readonly string EventName = BaseName + "-ShowWindow";
+
+    private static string UserKey()
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                using var id = System.Security.Principal.WindowsIdentity.GetCurrent();
+                if (id.User?.Value is { } sid) return sid;
+            }
+        }
+        catch { /* fall back to the user name */ }
+        var name = new string(Environment.UserName.Where(char.IsLetterOrDigit).ToArray());
+        return name.Length > 0 ? name : "user";
+    }
 
     private readonly Mutex? _mutex;
     private readonly EventWaitHandle? _showEvent;

@@ -86,6 +86,88 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool OpenProcessToken(SafeProcessHandle process, uint desiredAccess, out IntPtr tokenHandle);
 
+    internal const int TokenElevation = 20;
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GetTokenInformation(IntPtr tokenHandle, int tokenInformationClass, out int tokenInformation,
+        int tokenInformationLength, out int returnLength);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool QueryFullProcessImageName(SafeProcessHandle process, uint flags, [Out] char[] exeName, ref int size);
+
+    // Toolhelp (parent process ids)
+    internal const uint TH32CS_SNAPPROCESS = 0x2;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct PROCESSENTRY32W
+    {
+        public uint dwSize;
+        public uint cntUsage;
+        public uint th32ProcessID;
+        public IntPtr th32DefaultHeapID;
+        public uint th32ModuleID;
+        public uint cntThreads;
+        public uint th32ParentProcessID;
+        public int pcPriClassBase;
+        public uint dwFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string szExeFile;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern IntPtr CreateToolhelp32Snapshot(uint flags, uint processId);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool Process32FirstW(IntPtr snapshot, ref PROCESSENTRY32W entry);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool Process32NextW(IntPtr snapshot, ref PROCESSENTRY32W entry);
+
+    // ---------------------------------------------------------------- wintrust (Authenticode)
+
+    internal static readonly Guid WINTRUST_ACTION_GENERIC_VERIFY_V2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
+    internal const uint WTD_UI_NONE = 2;
+    internal const uint WTD_REVOKE_WHOLECHAIN = 1;
+    internal const uint WTD_CHOICE_FILE = 1;
+    internal const uint WTD_STATEACTION_VERIFY = 1;
+    internal const uint WTD_STATEACTION_CLOSE = 2;
+    internal const uint WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT = 0x80;
+    internal const uint WTD_DISABLE_MD2_MD4 = 0x2000;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct WINTRUST_FILE_INFO
+    {
+        public uint cbStruct;
+        public IntPtr pcwszFilePath;
+        public IntPtr hFile;
+        public IntPtr pgKnownSubject;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct WINTRUST_DATA
+    {
+        public uint cbStruct;
+        public IntPtr pPolicyCallbackData;
+        public IntPtr pSIPClientData;
+        public uint dwUIChoice;
+        public uint fdwRevocationChecks;
+        public uint dwUnionChoice;
+        public IntPtr pFile;            // union: WINTRUST_FILE_INFO*
+        public uint dwStateAction;
+        public IntPtr hWVTStateData;
+        public IntPtr pwszURLReference;
+        public uint dwProvFlags;
+        public uint dwUIContext;
+        public IntPtr pSignatureSettings;
+    }
+
+    /// <summary>Returns 0 when the file has a valid Authenticode signature that chains to a trusted root.</summary>
+    [DllImport("wintrust.dll", SetLastError = false)]
+    internal static extern int WinVerifyTrust(IntPtr hwnd, ref Guid actionId, ref WINTRUST_DATA data);
+
     // ---------------------------------------------------------------- ntdll
 
     [DllImport("ntdll.dll")]
@@ -121,6 +203,11 @@ internal static class NativeMethods
     [DllImport("powrprof.dll")]
     internal static extern uint PowerEnumerate(IntPtr rootPowerKey, IntPtr schemeGuid, IntPtr subGroupOfPowerSettingsGuid,
         uint accessFlags, uint index, ref Guid buffer, ref uint bufferSize);
+
+    /// <summary>Copies a scheme. With <paramref name="destinationSchemeGuid"/> = IntPtr.Zero the new GUID is allocated
+    /// by powrprof and must be freed with <see cref="LocalFree"/>.</summary>
+    [DllImport("powrprof.dll")]
+    internal static extern uint PowerDuplicateScheme(IntPtr rootPowerKey, ref Guid sourceSchemeGuid, ref IntPtr destinationSchemeGuid);
 
     [DllImport("powrprof.dll")]
     internal static extern uint PowerReadACValueIndex(IntPtr rootPowerKey, ref Guid schemeGuid, ref Guid subGroupOfPowerSettingsGuid,

@@ -9,12 +9,59 @@ namespace PcMax.App.Services;
 /// <summary>
 /// The ONLY place that touches PcMax.Windows. Every call is guarded by <see cref="OperatingSystem.IsWindows"/>
 /// and kept in a non-inlined method so the Windows assembly is only loaded on Windows.
-/// Elsewhere (or with PCMAX_FAKE=1) the app runs on <see cref="FakePlatform"/> for design and screenshots.
+/// Elsewhere the app runs on <see cref="FakePlatform"/> for design and screenshots. On Windows, PCMAX_FAKE=1 does the
+/// same, but only in DEBUG builds: a release build always runs the real platform, whatever the environment says.
 /// </summary>
 public static class PlatformFactory
 {
     public static bool UseFake =>
-        !OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("PCMAX_FAKE") == "1";
+        !OperatingSystem.IsWindows()
+#if DEBUG
+        || Environment.GetEnvironmentVariable("PCMAX_FAKE") == "1"
+#endif
+        ;
+
+    /// <summary>Where state lives: %ProgramData%\PcMax on Windows; a per-user dev folder with the fake platform.</summary>
+    public static AppPaths DefaultPaths() =>
+        UseFake
+            ? new AppPaths(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify), "PcMax-dev"))
+            : AppPaths.Default();
+
+    /// <summary>
+    /// Locks down the data folder (admin-only ACL) and migrates the old per-user state. Must run before anything
+    /// reads state. Returns notes to log. Throws when the folder cannot be made safe.
+    /// </summary>
+    public static IReadOnlyList<string> EnsureDataFolder(AppPaths paths)
+    {
+        if (UseFake || !OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(paths.Root);
+            return Array.Empty<string>();
+        }
+        return EnsureDataFolderWindows(paths);
+    }
+
+    /// <summary>The uninstaller's clean-up: resume suspended apps, revert every tweak, remove the logon task. Never throws.</summary>
+    public static int UninstallCleanup(AppPaths paths)
+    {
+        if (!OperatingSystem.IsWindows()) return 0;
+        return UninstallCleanupWindows(paths);
+    }
+
+    /// <summary>True for the copy installed by the setup in %ProgramFiles% (admin-only). False for dev builds.</summary>
+    public static bool IsInstalledCopy => !UseFake && OperatingSystem.IsWindows() && IsInstalledCopyWindows();
+
+    /// <summary>
+    /// Signature policy for a downloaded installer: null when acceptable, else the reason. When the running exe is
+    /// Authenticode-signed, the installer must have a valid signature from the same certificate.
+    /// </summary>
+    public static string? CheckUpdateSignature(string installer)
+    {
+        if (!OperatingSystem.IsWindows()) return "atualizações só no Windows";
+        var exe = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(exe)) return "caminho da app desconhecido";
+        return CheckUpdateSignatureWindows(installer, exe);
+    }
 
     public static PlatformServices Create(AppPaths paths, Func<AppSettings> settings)
     {
@@ -30,12 +77,6 @@ public static class PlatformFactory
             ResumeLeftoversWindows(paths);
     }
 
-    /// <summary>Used by the Velopack uninstall hook: remove the logon task.</summary>
-    public static void DisableAutostart(AppPaths paths)
-    {
-        if (!OperatingSystem.IsWindows()) return;
-        PcMax.Windows.WindowsPlatform.DisableAutostart();
-    }
 
     /// <summary>Points the platform log at our logs folder (before anything is logged).</summary>
     internal static void InitLog(AppPaths paths)
@@ -58,6 +99,22 @@ public static class PlatformFactory
     [MethodImpl(MethodImplOptions.NoInlining), SupportedOSPlatform("windows")]
     private static void ResumeLeftoversWindows(AppPaths paths) =>
         PcMax.Windows.ProcessBooster.ResumeLeftovers(paths);
+
+    [MethodImpl(MethodImplOptions.NoInlining), SupportedOSPlatform("windows")]
+    private static IReadOnlyList<string> EnsureDataFolderWindows(AppPaths paths) =>
+        PcMax.Windows.SystemServices.SecureDataFolder.Ensure(paths);
+
+    [MethodImpl(MethodImplOptions.NoInlining), SupportedOSPlatform("windows")]
+    private static int UninstallCleanupWindows(AppPaths paths) =>
+        PcMax.Windows.WindowsPlatform.UninstallCleanup(paths);
+
+    [MethodImpl(MethodImplOptions.NoInlining), SupportedOSPlatform("windows")]
+    private static bool IsInstalledCopyWindows() =>
+        PcMax.Windows.SystemServices.InstallLocation.IsInstalledCopy();
+
+    [MethodImpl(MethodImplOptions.NoInlining), SupportedOSPlatform("windows")]
+    private static string? CheckUpdateSignatureWindows(string installer, string exe) =>
+        PcMax.Windows.SystemServices.Authenticode.CheckUpdateSignature(installer, exe);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void InitLogWindows(AppPaths paths) => PcMax.Windows.Log.Init(paths.LogsDir);

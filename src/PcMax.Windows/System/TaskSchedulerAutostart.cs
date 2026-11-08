@@ -1,8 +1,6 @@
-using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Principal;
-using System.Text;
-using System.Xml;
 using System.Xml.Linq;
 using PcMax.Core.Platform;
 
@@ -10,20 +8,36 @@ namespace PcMax.Windows.SystemServices;
 
 /// <summary>
 /// Starts the app at logon, elevated, with no UAC prompt: a Task Scheduler task "PC Max" with
-/// "run with highest privileges" and a logon trigger for the current user. Managed through
-/// schtasks.exe with an XML definition; arguments are passed via ArgumentList (no shell parsing).
+/// "run with highest privileges" and a logon trigger for the current user. Registered through the
+/// Task Scheduler COM API (ITaskService / ITaskFolder.RegisterTask) with the XML built in memory:
+/// no temp file and no schtasks.exe.
+/// Only an executable installed under %ProgramFiles% (writable by administrators only) is ever registered,
+/// so a copy in a user-writable folder (a dev build, a download) can never be started elevated by the task.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal sealed class TaskSchedulerAutostart : IAutostart
 {
     private const string TaskName = "PC Max";
+    private const int TASK_CREATE_OR_UPDATE = 6;
+    private const int TASK_LOGON_INTERACTIVE_TOKEN = 3;
+    private const int HRESULT_FILE_NOT_FOUND = unchecked((int)0x80070002);
     private static readonly XNamespace Ns = "http://schemas.microsoft.com/windows/2004/02/mit/task";
-
-    private static string Schtasks => Path.Combine(Environment.SystemDirectory, "schtasks.exe");
 
     public bool IsEnabled()
     {
-        try { return Run(out _, "/Query", "/TN", TaskName) == 0; }
+        try
+        {
+            return WithRootFolder(folder =>
+            {
+                try
+                {
+                    var task = folder.GetTask(TaskName);
+                    Release(task);
+                    return true;
+                }
+                catch (COMException ex) when (ex.HResult == HRESULT_FILE_NOT_FOUND) { return false; }
+            });
+        }
         catch (Exception ex)
         {
             Log.Warn("Autoarranque: consulta falhou", ex);
@@ -39,37 +53,63 @@ internal sealed class TaskSchedulerAutostart : IAutostart
         if (!File.Exists(full) || !full.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
             throw new FileNotFoundException("Executável da app não encontrado.", full);
         if (full.Contains('"')) throw new ArgumentException("Caminho inválido.", nameof(exePath));
+        if (!InstallLocation.IsUnderProgramFiles(full))
+            throw new InvalidOperationException(
+                "O arranque com o Windows só funciona com o PC Max instalado em \"Programas\" (Program Files). " +
+                "Esta cópia está numa pasta que outros programas podem alterar, por isso não é registada para arrancar como administrador.");
 
         using var identity = WindowsIdentity.GetCurrent();
         var sid = identity.User?.Value ?? throw new InvalidOperationException("Utilizador atual desconhecido.");
 
-        var xml = BuildXml(full, identity.Name, sid);
-        var tmp = Path.Combine(Path.GetTempPath(), $"pcmax-task-{Guid.NewGuid():N}.xml");
-        try
+        var xml = BuildXml(full, identity.Name, sid).ToString(SaveOptions.DisableFormatting);
+        WithRootFolder(folder =>
         {
-            // schtasks expects UTF-16 when the declaration says so.
-            using (var w = XmlWriter.Create(tmp, new XmlWriterSettings { Encoding = Encoding.Unicode, Indent = true }))
-                xml.Save(w);
-            var rc = Run(out var output, "/Create", "/TN", TaskName, "/XML", tmp, "/F");
-            if (rc != 0) throw new InvalidOperationException($"schtasks /Create falhou ({rc}): {output.Trim()}");
-            Log.Info($"Autoarranque ativado: {full}");
-        }
-        finally
-        {
-            try { File.Delete(tmp); } catch { }
-        }
+            // userId/password null: the principal (current user, interactive token, highest privileges) comes from the XML.
+            var registered = folder.RegisterTask(TaskName, xml, TASK_CREATE_OR_UPDATE, null, null, TASK_LOGON_INTERACTIVE_TOKEN, null);
+            Release(registered);
+            return 0;
+        });
+        Log.Info($"Autoarranque ativado: {full}");
     }
 
     public void Disable()
     {
-        if (!IsEnabled()) return;
-        var rc = Run(out var output, "/Delete", "/TN", TaskName, "/F");
-        if (rc != 0) throw new InvalidOperationException($"schtasks /Delete falhou ({rc}): {output.Trim()}");
-        Log.Info("Autoarranque desativado.");
+        WithRootFolder(folder =>
+        {
+            try { folder.DeleteTask(TaskName, 0); }
+            catch (COMException ex) when (ex.HResult == HRESULT_FILE_NOT_FOUND) { return 0; }
+            Log.Info("Autoarranque desativado.");
+            return 0;
+        });
+    }
+
+    /// <summary>Connects to the local Task Scheduler and runs <paramref name="action"/> on the root folder ("\\").</summary>
+    private static T WithRootFolder<T>(Func<dynamic, T> action)
+    {
+        var type = Type.GetTypeFromProgID("Schedule.Service", throwOnError: true)!;
+        dynamic? service = null;
+        dynamic? folder = null;
+        try
+        {
+            service = Activator.CreateInstance(type) ?? throw new InvalidOperationException("Task Scheduler indisponível.");
+            service.Connect();
+            folder = service.GetFolder("\\");
+            return action(folder);
+        }
+        finally
+        {
+            Release(folder);
+            Release(service);
+        }
+    }
+
+    private static void Release(object? com)
+    {
+        try { if (com is not null && Marshal.IsComObject(com)) Marshal.FinalReleaseComObject(com); } catch { }
     }
 
     private static XDocument BuildXml(string exe, string userName, string sid) =>
-        new(new XDeclaration("1.0", "UTF-16", null),
+        new(
             new XElement(Ns + "Task", new XAttribute("version", "1.2"),
                 new XElement(Ns + "RegistrationInfo",
                     new XElement(Ns + "Description", "Inicia o PC Max ao entrar no Windows."),
@@ -106,27 +146,4 @@ internal sealed class TaskSchedulerAutostart : IAutostart
                         new XElement(Ns + "Command", "\"" + exe + "\""),
                         new XElement(Ns + "Arguments", "--minimized"),
                         new XElement(Ns + "WorkingDirectory", Path.GetDirectoryName(exe) ?? "")))));
-
-    private static int Run(out string output, params string[] args)
-    {
-        var psi = new ProcessStartInfo(Schtasks)
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        foreach (var a in args) psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi) ?? throw new InvalidOperationException("Não foi possível iniciar schtasks.exe.");
-        var so = p.StandardOutput.ReadToEndAsync();
-        var se = p.StandardError.ReadToEndAsync();
-        if (!p.WaitForExit(20000))
-        {
-            try { p.Kill(); } catch { }
-            output = "timeout";
-            return -1;
-        }
-        output = so.Result + se.Result;
-        return p.ExitCode;
-    }
 }

@@ -1,65 +1,209 @@
 name: Release
 
-# Push a tag like v0.1.0 to build the installer and publish it.
-# Installed copies of the app update themselves from these GitHub releases.
+# Push a tag like v0.2.0 to build the per-machine installer (Inno Setup) and publish it as a GitHub release.
+# Installed copies of the app find it through the GitHub Releases API, check its SHA-256 (and, when the app is
+# signed, its Authenticode signature) and install it.
+#
+# Hardening:
+# - the tag name is only ever read from the REF environment variable and validated with a regex in pwsh;
+#   it is never interpolated into a script;
+# - no workflow-wide permissions; only the release job gets contents: write;
+# - PresentMon is a pinned release, must carry a valid Authenticode signature from Intel (fail closed);
+# - the build fails if the output ships a kernel driver (*.sys) or a DLL mentioning WinRing0.
+
 on:
   push:
     tags: ['v*.*.*']
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
-  release:
+  build:
     runs-on: windows-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    env:
+      REF: ${{ github.ref_name }}
+      # Pinned PresentMon release (frame-time capture, MIT licence). Bump deliberately.
+      PRESENTMON_TAG: v2.3.0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v4.3.1
         with:
           dotnet-version: 8.0.x
 
-      - name: Version from tag
+      - name: Validate tag
         id: v
         shell: pwsh
         run: |
-          $ver = "${{ github.ref_name }}".TrimStart('v')
-          if ($ver -notmatch '^\d+\.\d+\.\d+$') { throw "Tag must look like v1.2.3" }
+          if ($env:REF -cnotmatch '^v(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$') {
+            throw "A tag tem de ser vX.Y.Z (recebido: '$env:REF')."
+          }
+          $ver = $env:REF.Substring(1)
           "version=$ver" >> $env:GITHUB_OUTPUT
+          "VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Test
+        shell: pwsh
         run: dotnet test tests/PcMax.Core.Tests -c Release
 
-      - name: Publish app
-        run: >
-          dotnet publish src/PcMax.App/PcMax.App.csproj -c Release -r win-x64 --self-contained true
-          -p:Version=${{ steps.v.outputs.version }} -o publish
+      - name: Publish app (win-x64, self-contained)
+        shell: pwsh
+        run: |
+          dotnet publish src/PcMax.App/PcMax.App.csproj -c Release -r win-x64 --self-contained true `
+            "-p:Version=$env:VERSION" -o publish
+          if ($LASTEXITCODE -ne 0) { throw "dotnet publish falhou." }
+          if (-not (Test-Path publish/PcMax.exe)) { throw "publish/PcMax.exe em falta." }
 
-      - name: Add PresentMon (frame-time capture, MIT licence)
-        continue-on-error: true
+      - name: Add PresentMon (pinned, signature verified)
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download --repo GameTechDev/PresentMon --pattern "PresentMon-*-x64.exe" --dir pm
-          $exe = Get-ChildItem pm -Filter "PresentMon-*-x64.exe" | Where-Object { $_.Name -notmatch "Service|Capture" } | Select-Object -First 1
-          if ($exe) { Copy-Item $exe.FullName publish/PresentMon.exe }
+          if ($env:PRESENTMON_TAG -cnotmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw "PRESENTMON_TAG inválido." }
+          New-Item -ItemType Directory -Force pm | Out-Null
+          gh release download "$env:PRESENTMON_TAG" --repo GameTechDev/PresentMon --pattern "PresentMon-*-x64.exe" --dir pm
+          if ($LASTEXITCODE -ne 0) { throw "Não foi possível transferir o PresentMon $env:PRESENTMON_TAG." }
+          $exe = Get-ChildItem pm -Filter "PresentMon-*-x64.exe" |
+            Where-Object { $_.Name -notmatch 'Service|Capture' } | Select-Object -First 1
+          if (-not $exe) { throw "Executável do PresentMon não encontrado na release $env:PRESENTMON_TAG." }
+          $sig = Get-AuthenticodeSignature -LiteralPath $exe.FullName
+          if ($sig.Status -ne 'Valid') { throw "Assinatura do PresentMon inválida: $($sig.Status) $($sig.StatusMessage)" }
+          $subject = $sig.SignerCertificate.Subject
+          if ($subject -notmatch 'Intel') { throw "PresentMon assinado por um certificado inesperado: $subject" }
+          $hash = (Get-FileHash -LiteralPath $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "PresentMon $($exe.Name) SHA-256 $hash"
+          Write-Host "Assinado por: $subject"
+          Copy-Item -LiteralPath $exe.FullName publish/PresentMon.exe
 
-      - name: Install Velopack CLI
-        run: dotnet tool install -g vpk --version 1.2.161
+      - name: Check for kernel drivers and WinRing0
+        shell: pwsh
+        run: |
+          $sys = Get-ChildItem publish -Recurse -File -Include *.sys
+          if ($sys) { throw "A pasta publicada contém drivers (*.sys): $($sys.FullName -join ', ')" }
+          # RAMSPDToolkit-NDD (dependency of LibreHardwareMonitorLib; the "no driver distribution" build) only names a
+          # WinRing0 driver interface and ships no driver. It is allowed by exact hash: any new version must be re-reviewed.
+          $allowed = @{ 'RAMSPDToolkit-NDD.dll' = '04840b4479941dcef17c73ecf66827aeb717f0e90f904552da6ae517264378ca' }
+          # Search both as ASCII/UTF-8 (identifiers, resource names) and UTF-16 (string literals).
+          $utf16 = [Text.Encoding]::Latin1.GetString([Text.Encoding]::Unicode.GetBytes('WinRing0'))
+          $bad = @()
+          foreach ($dll in Get-ChildItem publish -Recurse -File -Filter *.dll) {
+            $text = [Text.Encoding]::Latin1.GetString([IO.File]::ReadAllBytes($dll.FullName))
+            $hit = $text.Contains('WinRing0') -or $text.Contains($utf16)
+            if (-not $hit) { continue }
+            $hash = (Get-FileHash -LiteralPath $dll.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($allowed[$dll.Name] -eq $hash) { Write-Host "Permitido (revisto): $($dll.Name) $hash"; continue }
+            $bad += "$($dll.FullName) ($hash)"
+          }
+          if ($bad) { throw "DLLs que mencionam WinRing0: $($bad -join ', ')" }
 
-      - name: Download previous release (for delta updates)
-        continue-on-error: true
-        run: vpk download github --repoUrl ${{ github.server_url }}/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }}
+      # Secrets are only exposed to the steps that need them, never to the build/test steps.
+      - name: Check for signing secrets
+        id: sign
+        shell: pwsh
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+        run: |
+          if ($env:SIGN_PFX_BASE64 -and $env:SIGN_PFX_PASSWORD) { "enabled=true" >> $env:GITHUB_OUTPUT; Write-Host "Assinatura ativada." }
+          else { Write-Host "Sem certificado: a release sai sem assinatura digital." }
 
-      - name: Pack installer
-        run: >
-          vpk pack --packId PcMax --packVersion ${{ steps.v.outputs.version }} --packDir publish
-          --mainExe PcMax.exe --packTitle "PC Max" --packAuthors "PC Max"
-          --icon src/PcMax.App/Assets/pcmax.ico
+      - name: Sign PcMax.exe (optional)
+        if: steps.sign.outputs.enabled == 'true'
+        shell: pwsh
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'sign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
+          try {
+            $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+              Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
+            if (-not $signtool) { throw "signtool.exe não encontrado." }
+            & $signtool.FullName sign /fd sha256 /tr http://timestamp.digicert.com /td sha256 /f $pfx /p $env:SIGN_PFX_PASSWORD publish/PcMax.exe
+            if ($LASTEXITCODE -ne 0) { throw "signtool falhou ($LASTEXITCODE)." }
+          } finally { Remove-Item -Force $pfx -ErrorAction SilentlyContinue }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "Instalação do Inno Setup falhou." }
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe não encontrado." }
+          $publish = (Resolve-Path publish).Path
+          $dist = Join-Path $pwd 'dist'
+          & $iscc "/DAppVersion=$env:VERSION" "/DPublishDir=$publish" "/DOutputDir=$dist" installer/pcmax.iss
+          if ($LASTEXITCODE -ne 0) { throw "iscc falhou ($LASTEXITCODE)." }
+          $name = "PcMax-Setup-$env:VERSION.exe"
+          if (-not (Test-Path (Join-Path $dist $name))) { throw "$name não foi criado." }
+
+      - name: Sign installer (optional)
+        if: steps.sign.outputs.enabled == 'true'
+        shell: pwsh
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'sign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
+          try {
+            $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+              Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
+            if (-not $signtool) { throw "signtool.exe não encontrado." }
+            & $signtool.FullName sign /fd sha256 /tr http://timestamp.digicert.com /td sha256 /f $pfx /p $env:SIGN_PFX_PASSWORD "dist/PcMax-Setup-$env:VERSION.exe"
+            if ($LASTEXITCODE -ne 0) { throw "signtool falhou ($LASTEXITCODE)." }
+          } finally { Remove-Item -Force $pfx -ErrorAction SilentlyContinue }
+
+      - name: Write checksum
+        shell: pwsh
+        run: |
+          $name = "PcMax-Setup-$env:VERSION.exe"
+          $hash = (Get-FileHash -LiteralPath "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          # sha256sum format: lowercase hex, two spaces, file name (no BOM).
+          [IO.File]::WriteAllText((Join-Path $pwd "dist/$name.sha256"), "$hash  $name`n", [Text.UTF8Encoding]::new($false))
+          Write-Host "$name SHA-256 $hash"
+
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: installer
+          path: |
+            dist/PcMax-Setup-*.exe
+            dist/PcMax-Setup-*.exe.sha256
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      REF: ${{ github.ref_name }}
+      VERSION: ${{ needs.build.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: installer
+          path: dist
 
       - name: Publish GitHub release
-        run: >
-          vpk upload github --repoUrl ${{ github.server_url }}/${{ github.repository }}
-          --publish --releaseName "PC Max ${{ steps.v.outputs.version }}" --tag ${{ github.ref_name }}
-          --token ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          if ($env:REF -cnotmatch '^v(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$') { throw "Tag inválida." }
+          if ($env:VERSION -cne $env:REF.Substring(1)) { throw "Versão inconsistente." }
+          $installer = "dist/PcMax-Setup-$env:VERSION.exe"
+          $checksum = "$installer.sha256"
+          if (-not (Test-Path $installer) -or -not (Test-Path $checksum)) { throw "Ficheiros da release em falta." }
+          gh release create "$env:REF" $installer $checksum --repo "$env:GITHUB_REPOSITORY" --title "PC Max $env:VERSION" --generate-notes
+          if ($LASTEXITCODE -ne 0) { throw "gh release create falhou." }

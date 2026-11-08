@@ -36,7 +36,14 @@ internal abstract class RegistryDwordTweak : ITweak
     {
         var previous = new Dictionary<string, string?>(StringComparer.Ordinal);
         foreach (var v in Values)
-            previous[v.SnapshotKey] = RegistryValue.Capture(v.Hive, v.SubKey, v.Name);
+        {
+            var captured = RegistryValue.Capture(v.Hive, v.SubKey, v.Name);
+            // We only ever record DWORD or "absent", so a snapshot with anything else is known to be forged.
+            // A value of an unexpected type is left alone rather than overwritten without a way back.
+            if (!IsDwordOrAbsent(captured))
+                throw new InvalidOperationException($"O valor {v.Name} tem um tipo inesperado no registo; nada foi alterado.");
+            previous[v.SnapshotKey] = captured;
+        }
 
         var written = new List<RegistryDword>();
         try
@@ -60,6 +67,28 @@ internal abstract class RegistryDwordTweak : ITweak
         }
         Log.Info($"Tweak {Id} aplicado.");
         return Task.FromResult(TweakSnapshot.Create(Id, previous));
+    }
+
+    /// <summary>Only this tweak's own value names, each "dword:&lt;number&gt;", the absent marker or null.</summary>
+    public bool AcceptsSnapshot(TweakSnapshot snapshot)
+    {
+        if (snapshot.TweakId != Id || snapshot.PreviousValues is not { Count: > 0 } values || values.Count > Values.Count) return false;
+        var known = Values.Select(v => v.SnapshotKey).ToHashSet(StringComparer.Ordinal);
+        foreach (var (key, value) in values)
+        {
+            if (!known.Contains(key)) return false;
+            if (value is not null && !IsDwordOrAbsent(value)) return false;
+        }
+        return true;
+    }
+
+    internal static bool IsDwordOrAbsent(string? captured)
+    {
+        if (captured is null || captured == RegistryValue.Absent) return true;
+        if (!captured.StartsWith("dword:", StringComparison.Ordinal)) return false;
+        var digits = captured.AsSpan(6);
+        return digits.Length is > 0 and <= 10
+            && uint.TryParse(digits, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out _);
     }
 
     public Task RevertAsync(TweakSnapshot snapshot, CancellationToken ct = default)

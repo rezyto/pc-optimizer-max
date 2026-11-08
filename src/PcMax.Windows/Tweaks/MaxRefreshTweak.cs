@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Runtime.Versioning;
+using System.Text.RegularExpressions;
 using PcMax.Core.Tweaks;
 using PcMax.Windows.Hardware;
 
@@ -10,7 +11,7 @@ namespace PcMax.Windows.Tweaks;
 /// Snapshot: one entry per GDI device name -> "hz|width|height" before the change.
 /// </summary>
 [SupportedOSPlatform("windows")]
-internal sealed class MaxRefreshTweak : ITweak
+internal sealed partial class MaxRefreshTweak : ITweak
 {
     public string Id => "display.max-refresh";
     public string Name => "Usar a frequência máxima do monitor";
@@ -53,6 +54,32 @@ internal sealed class MaxRefreshTweak : ITweak
             throw new InvalidOperationException("O Windows recusou a nova frequência em: " + string.Join(", ", failures));
         return TweakSnapshot.Create(Id, previous);
     }, ct);
+
+    /// <summary>
+    /// Keys must be GDI display names ("\\.\DISPLAY1"), values "hz|width|height" with sane numbers (or null).
+    /// </summary>
+    public bool AcceptsSnapshot(TweakSnapshot snapshot)
+    {
+        if (snapshot.TweakId != Id || snapshot.PreviousValues is not { Count: <= 16 } values) return false;
+        foreach (var (device, value) in values)
+        {
+            if (!DeviceRegex().IsMatch(device)) return false;
+            if (value is null) continue;
+            var m = EntryRegex().Match(value);
+            if (!m.Success) return false;
+            var hz = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+            var w = int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+            var h = int.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture);
+            if (hz is < 1 or > 1000 || w is < 1 or > 16384 || h is < 1 or > 16384) return false;
+        }
+        return true;
+    }
+
+    [GeneratedRegex(@"^\\\\\.\\DISPLAY[0-9]{1,3}$", RegexOptions.CultureInvariant)]
+    private static partial Regex DeviceRegex();
+
+    [GeneratedRegex(@"^([0-9]{1,4})\|([0-9]{1,5})\|([0-9]{1,5})$", RegexOptions.CultureInvariant)]
+    private static partial Regex EntryRegex();
 
     public Task RevertAsync(TweakSnapshot snapshot, CancellationToken ct = default) => Task.Run(() =>
     {

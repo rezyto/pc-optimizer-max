@@ -68,9 +68,11 @@ public sealed class ProcessBooster : IProcessBooster
         if (names.Count == 0) return Array.Empty<int>();
 
         var ownPid = Environment.ProcessId;
-        var mySid = WindowsIdentity.GetCurrent().User;
+        var mySid = CurrentUserSid();
         int mySession = -1;
         ProcessIdToSessionId(ownPid, out mySession);
+        // The game and whatever launched it (launcher, anti-cheat bootstrapper, Steam…) are never suspended.
+        var keepRunning = excludePid is { } gamePid ? ParentChain(gamePid) : new HashSet<int>();
 
         var suspended = new List<int>();
         lock (FileGate)
@@ -85,7 +87,7 @@ public sealed class ProcessBooster : IProcessBooster
                 {
                     try
                     {
-                        if (p.Id == ownPid || p.Id <= 4 || p.Id == excludePid) continue; // never the game itself
+                        if (p.Id == ownPid || p.Id <= 4 || p.Id == excludePid || keepRunning.Contains(p.Id)) continue; // never the game or its parents
                         if (Core.Settings.ProtectedProcesses.IsProtected(p.ProcessName)) continue;
                         if (records.Any(r => r.Pid == p.Id)) continue; // already suspended by us
                         if (p.SessionId != mySession) continue;
@@ -94,6 +96,7 @@ public sealed class ProcessBooster : IProcessBooster
                         if (h.IsInvalid) continue;
                         if (IsProcessCritical(h, out var critical) && critical) continue;
                         if (!IsOwnedBy(h, mySid)) continue;
+                        if (IsElevated(h)) continue; // elevated apps are not "background apps" of this user
                         if (!GetProcessTimes(h, out var created, out _, out _, out _)) continue;
 
                         // Persist first: if we crash right after suspending, the record is already on disk.
@@ -136,13 +139,14 @@ public sealed class ProcessBooster : IProcessBooster
     public void ResumeAll(IEnumerable<int> processIds)
     {
         var wanted = processIds.ToHashSet();
+        var mySid = CurrentUserSid();
         lock (FileGate)
         {
             var records = Load(_paths);
             // Only pids we recorded ourselves: never resume something another tool (e.g. a debugger) suspended.
             foreach (var r in records.Where(r => wanted.Contains(r.Pid)).ToList())
             {
-                ResumeRecord(r);
+                ResumeRecord(r, mySid);
                 records.Remove(r);
             }
             try { Save(_paths, records); } catch (Exception ex) { Log.Warn("Não foi possível atualizar suspended.json", ex); }
@@ -151,7 +155,8 @@ public sealed class ProcessBooster : IProcessBooster
 
     /// <summary>
     /// At startup: resume processes left suspended by a previous run that crashed. A pid is only resumed
-    /// when its creation time still matches the recorded one (so a reused pid is never touched).
+    /// when its creation time still matches the recorded one (so a reused pid is never touched), it belongs
+    /// to the current user and its executable name is the recorded one.
     /// </summary>
     public static void ResumeLeftovers(AppPaths paths)
     {
@@ -162,7 +167,8 @@ public sealed class ProcessBooster : IProcessBooster
                 var records = Load(paths);
                 if (records.Count == 0) return;
                 Log.Info($"A retomar {records.Count} processo(s) deixados suspensos.");
-                foreach (var r in records) ResumeRecord(r);
+                var mySid = CurrentUserSid();
+                foreach (var r in records) ResumeRecord(r, mySid);
                 Save(paths, new List<SuspendedProcess>());
             }
         }
@@ -172,7 +178,7 @@ public sealed class ProcessBooster : IProcessBooster
         }
     }
 
-    private static void ResumeRecord(SuspendedProcess r)
+    private static void ResumeRecord(SuspendedProcess r, SecurityIdentifier? mySid)
     {
         try
         {
@@ -183,6 +189,17 @@ public sealed class ProcessBooster : IProcessBooster
                 Log.Warn($"PID {r.Pid} ({r.Name}) já não é o mesmo processo; não foi retomado.");
                 return;
             }
+            if (!IsOwnedBy(h, mySid))
+            {
+                Log.Warn($"PID {r.Pid} ({r.Name}) não pertence ao utilizador atual; não foi retomado.");
+                return;
+            }
+            var image = ImageName(h);
+            if (image is null || !string.Equals(image, r.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                Log.Warn($"PID {r.Pid} não é {r.Name} ({image ?? "?"}); não foi retomado.");
+                return;
+            }
             var status = NtResumeProcess(h);
             if (status < 0) Log.Warn($"Não foi possível retomar {r.Name} ({r.Pid}): 0x{status:X8}");
             else Log.Info($"Retomado: {r.Name} ({r.Pid})");
@@ -191,6 +208,63 @@ public sealed class ProcessBooster : IProcessBooster
         {
             Log.Warn($"Retomar {r.Name} ({r.Pid}) falhou", ex);
         }
+    }
+
+    private static SecurityIdentifier? CurrentUserSid()
+    {
+        try
+        {
+            using var id = WindowsIdentity.GetCurrent();
+            return id.User;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Executable name without folder or ".exe", from the process image path.</summary>
+    private static string? ImageName(SafeProcessHandle h)
+    {
+        var buf = new char[1024];
+        var size = buf.Length;
+        if (!QueryFullProcessImageName(h, 0, buf, ref size) || size <= 0) return null;
+        return Path.GetFileNameWithoutExtension(new string(buf, 0, size));
+    }
+
+    /// <summary>True when the process runs with an elevated (administrator) token. Unknown counts as elevated.</summary>
+    private static bool IsElevated(SafeProcessHandle h)
+    {
+        if (!OpenProcessToken(h, TOKEN_QUERY, out var token)) return true;
+        try
+        {
+            return !GetTokenInformation(token, TokenElevation, out var elevated, sizeof(int), out _) || elevated != 0;
+        }
+        finally { CloseHandle(token); }
+    }
+
+    /// <summary>The pid and every ancestor (parent, grandparent, …) according to a process snapshot.</summary>
+    internal static HashSet<int> ParentChain(int pid)
+    {
+        var chain = new HashSet<int> { pid };
+        var parents = new Dictionary<int, int>();
+        var snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snap == IntPtr.Zero || snap == new IntPtr(-1)) return chain;
+        try
+        {
+            var e = new PROCESSENTRY32W { dwSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<PROCESSENTRY32W>() };
+            if (Process32FirstW(snap, ref e))
+            {
+                do { parents[(int)e.th32ProcessID] = (int)e.th32ParentProcessID; }
+                while (Process32NextW(snap, ref e));
+            }
+        }
+        finally { CloseHandle(snap); }
+
+        var current = pid;
+        for (var depth = 0; depth < 64 && parents.TryGetValue(current, out var parent) && parent > 4; depth++)
+        {
+            if (!chain.Add(parent)) break; // loop (reused pids)
+            current = parent;
+        }
+        return chain;
     }
 
     private static bool IsOwnedBy(SafeProcessHandle h, SecurityIdentifier? sid)
@@ -210,13 +284,13 @@ public sealed class ProcessBooster : IProcessBooster
 
     private static string FilePath(AppPaths paths) => Path.Combine(paths.Root, "suspended.json");
 
-    private static List<SuspendedProcess> Load(AppPaths paths)
+    internal static List<SuspendedProcess> Load(AppPaths paths)
     {
         try
         {
             var f = FilePath(paths);
             if (!File.Exists(f)) return new();
-            return JsonSerializer.Deserialize<List<SuspendedProcess>>(File.ReadAllText(f), JsonDefaults.Options) ?? new();
+            return Parse(AtomicFile.ReadAllTextCapped(f));
         }
         catch (Exception ex)
         {
@@ -226,7 +300,20 @@ public sealed class ProcessBooster : IProcessBooster
         }
     }
 
-    private static void Save(AppPaths paths, List<SuspendedProcess> records)
+    /// <summary>Only well-formed records: a plain process name, a real pid and a creation time. No side effects.</summary>
+    internal static List<SuspendedProcess> Parse(string json)
+    {
+        var list = JsonSerializer.Deserialize<List<SuspendedProcess?>>(json, JsonDefaults.Options) ?? new();
+        return list
+            .Where(r => r is not null && r.Pid > 4 && r.CreationTimeUtc > 0 && ProcessNames.IsValid(r.Name))
+            .Select(r => r!)
+            .GroupBy(r => r.Pid)
+            .Select(g => g.First())
+            .Take(500)
+            .ToList();
+    }
+
+    internal static void Save(AppPaths paths, List<SuspendedProcess> records)
     {
         var f = FilePath(paths);
         if (records.Count == 0)

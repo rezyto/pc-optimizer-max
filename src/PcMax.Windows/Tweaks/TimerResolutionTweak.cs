@@ -43,6 +43,18 @@ internal sealed class TimerResolutionTweak : ITweak
         }));
     }
 
+    /// <summary>Only "previousResolution100ns", holding a number (or null).</summary>
+    public bool AcceptsSnapshot(TweakSnapshot snapshot)
+    {
+        if (snapshot.TweakId != Id || snapshot.PreviousValues is not { Count: <= 1 } values) return false;
+        foreach (var (key, value) in values)
+        {
+            if (key != "previousResolution100ns") return false;
+            if (value is not null && (value.Length > 10 || !uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out _))) return false;
+        }
+        return true;
+    }
+
     public Task RevertAsync(TweakSnapshot snapshot, CancellationToken ct = default)
     {
         // After a crash the request died with the old process; Release() is then a no-op.

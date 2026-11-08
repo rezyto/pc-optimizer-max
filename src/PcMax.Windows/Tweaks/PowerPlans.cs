@@ -1,16 +1,14 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using PcMax.Core.Settings;
 using PcMax.Windows.Native;
 
 namespace PcMax.Windows.Tweaks;
 
-/// <summary>Power scheme helpers (powrprof.dll). powercfg.exe is only used to duplicate a scheme.</summary>
+/// <summary>Power scheme helpers (powrprof.dll only; no powercfg.exe).</summary>
 [SupportedOSPlatform("windows")]
-internal static partial class PowerPlans
+internal static class PowerPlans
 {
     public static readonly Guid Balanced = new("381b4222-f694-41f0-9685-ff5bb260df2e");
     public static readonly Guid HighPerformance = new("8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c");
@@ -87,38 +85,25 @@ internal static partial class PowerPlans
         return GetPersonality(scheme) == 1;
     }
 
-    /// <summary>Runs "powercfg -duplicatescheme &lt;source&gt;" and returns the new scheme GUID.</summary>
+    /// <summary>Copies <paramref name="source"/> with powrprof's PowerDuplicateScheme and returns the new scheme GUID.</summary>
     public static Guid? Duplicate(Guid source)
     {
-        var exe = Path.Combine(Environment.SystemDirectory, "powercfg.exe");
-        if (!File.Exists(exe)) return null;
-        var psi = new ProcessStartInfo(exe)
+        var src = source;
+        var dest = IntPtr.Zero;
+        var rc = NativeMethods.PowerDuplicateScheme(IntPtr.Zero, ref src, ref dest);
+        if (rc != NativeMethods.ERROR_SUCCESS || dest == IntPtr.Zero)
         {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        psi.ArgumentList.Add("-duplicatescheme");
-        psi.ArgumentList.Add(source.ToString("D"));
-        using var p = Process.Start(psi);
-        if (p is null) return null;
-        var stdoutTask = p.StandardOutput.ReadToEndAsync();
-        var stderrTask = p.StandardError.ReadToEndAsync();
-        if (!p.WaitForExit(15000))
-        {
-            try { p.Kill(); } catch { }
+            Log.Warn($"PowerDuplicateScheme {source} falhou (código {rc}).");
+            if (dest != IntPtr.Zero) NativeMethods.LocalFree(dest);
             return null;
         }
-        var output = stdoutTask.Result + stderrTask.Result;
-        if (p.ExitCode != 0) { Log.Warn($"powercfg -duplicatescheme {source} saiu com {p.ExitCode}: {output.Trim()}"); return null; }
-        // Output is localised ("Power Scheme GUID: <guid>  (Name)"); the only GUID in it is the new one.
-        var m = GuidRegex().Match(output);
-        return m.Success && Guid.TryParse(m.Value, out var g) && g != source ? g : null;
+        try
+        {
+            var g = Marshal.PtrToStructure<Guid>(dest);
+            return g != Guid.Empty && g != source ? g : null;
+        }
+        finally { NativeMethods.LocalFree(dest); }
     }
-
-    [GeneratedRegex(@"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")]
-    private static partial Regex GuidRegex();
 
     // The scheme we created by duplicating, so we reuse it instead of creating a new copy every game.
     private sealed record State(Guid? DuplicatedScheme);
@@ -133,7 +118,7 @@ internal static partial class PowerPlans
             {
                 var f = StateFile(paths);
                 if (!File.Exists(f)) return null;
-                return JsonSerializer.Deserialize<State>(File.ReadAllText(f), JsonDefaults.Options)?.DuplicatedScheme;
+                return ParseDuplicated(AtomicFile.ReadAllTextCapped(f, 4096));
             }
             catch (Exception ex)
             {
@@ -141,6 +126,13 @@ internal static partial class PowerPlans
                 return null;
             }
         }
+    }
+
+    /// <summary>No side effects. Throws <see cref="JsonException"/> on malformed JSON.</summary>
+    internal static Guid? ParseDuplicated(string json)
+    {
+        var g = JsonSerializer.Deserialize<State>(json, JsonDefaults.Options)?.DuplicatedScheme;
+        return g is { } v && v != Guid.Empty ? v : null;
     }
 
     public static void SaveDuplicated(AppPaths paths, Guid scheme)

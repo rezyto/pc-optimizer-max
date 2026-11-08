@@ -36,7 +36,8 @@ public partial class SettingsViewModel : PageViewModel
         if (host.Updates is { } u)
         {
             UpdateStatus = u.Status;
-            u.StatusChanged += (_, _) => host.Ui.Post(() => UpdateStatus = u.Status);
+            UpdateReady = u.UpdateReady;
+            u.StatusChanged += (_, _) => host.Ui.Post(() => { UpdateStatus = u.Status; UpdateReady = u.UpdateReady; });
         }
     }
 
@@ -68,6 +69,7 @@ public partial class SettingsViewModel : PageViewModel
     [ObservableProperty] private string _newBackgroundApp = "";
     [ObservableProperty] private string? _backgroundAppError;
     [ObservableProperty] private string _updateStatus = "";
+    [ObservableProperty] private bool _updateReady;
 
     public bool RiskIsElevated => SelectedRisk.Level > RiskLevel.Safe;
 
@@ -225,6 +227,13 @@ public partial class SettingsViewModel : PageViewModel
     {
         if (_host.Updates is null) { UpdateStatus = "Atualizações indisponíveis."; return; }
         UpdateStatus = await Task.Run(() => _host.Updates.CheckAsync(notify: false, ct), ct);
+    }
+
+    [RelayCommand]
+    private async Task InstallUpdateAsync()
+    {
+        if (_host.Updates is null) return;
+        UpdateStatus = await _host.Updates.InstallNowAsync();
     }
 
     [RelayCommand]

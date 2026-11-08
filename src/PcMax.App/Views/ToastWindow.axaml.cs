@@ -19,6 +19,15 @@ public partial class ToastWindow : Window
         Close();
     }
 
+    private void OnActionClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var action = (DataContext as ViewModels.ToastViewModel)?.Action;
+        Close();
+        try { action?.Invoke(); }
+        catch (Exception ex) { Services.AppLog.Error("Ação da notificação falhou", ex); }
+    }
+
     private void OnCloseClick(object? sender, RoutedEventArgs e)
     {
         e.Handled = true;

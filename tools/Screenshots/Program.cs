@@ -44,7 +44,7 @@ public static class Program
         var settings = new SettingsService(new SettingsStore(paths.SettingsFile));
         var notifier = new RecordingNotifier();
         var host = AppHostFactory.Create(paths, settings, notifier, new AvaloniaUiDispatcher());
-        host.Updates = new UpdateService(settings, notifier, () => host.IsGameActive);
+        host.Updates = new UpdateService(settings, notifier, () => host.IsGameActive, paths);
         BenchmarkService.CaptureDuration = TimeSpan.FromSeconds(1);
         Wait(host.StartAsync(syncAutostart: false));
 

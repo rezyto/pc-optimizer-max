@@ -26,7 +26,9 @@
                      Foreground="{Binding Tone, Converter={x:Static v:ToneToBrushConverter.Instance}}" />
           <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14.5" TextWrapping="Wrap" />
           <TextBlock Text="{Binding Message}" Classes="muted" FontSize="12.5" />
-          <TextBlock Text="{Binding Hint}" FontSize="11.5" Foreground="{StaticResource FaintBrush}" IsVisible="{Binding IsSticky}" Margin="0,2,0,0" />
+          <TextBlock Text="{Binding Hint}" FontSize="11.5" Foreground="{StaticResource FaintBrush}" IsVisible="{Binding ShowHint}" Margin="0,2,0,0" />
+          <Button Classes="primary" Content="{Binding ActionText}" IsVisible="{Binding HasAction}" Click="OnActionClick"
+                  HorizontalAlignment="Left" Margin="0,8,0,0" Padding="12,5" />
         </StackPanel>
         <Button Grid.Column="2" Classes="icon" VerticalAlignment="Top" Click="OnCloseClick" Padding="4">
           <PathIcon Width="11" Height="11" Data="{StaticResource Icon.Close}" Foreground="{StaticResource MutedBrush}" />

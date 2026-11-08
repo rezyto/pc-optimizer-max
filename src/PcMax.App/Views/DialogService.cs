@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Platform.Storage;
 using PcMax.App.Services;
 
@@ -58,23 +60,53 @@ public sealed class DialogService : IDialogService
     public void OpenUrl(string url)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || (u.Scheme != Uri.UriSchemeHttps && u.Scheme != Uri.UriSchemeHttp)) return;
-        Launch(u.AbsoluteUri);
+        Launch(u.AbsoluteUri, "A ligação");
     }
 
     public void OpenFolder(string path)
     {
-        if (Directory.Exists(path)) Launch(path);
+        if (Directory.Exists(path)) Launch(Path.GetFullPath(path), "O caminho da pasta");
     }
 
-    private static void Launch(string target)
+    /// <summary>
+    /// The app runs elevated: on Windows the target is opened by the desktop shell as the normal user, so the
+    /// browser or Explorer window never gets administrator rights. If that is not possible, nothing is started
+    /// elevated: the text is copied to the clipboard and the user is told.
+    /// </summary>
+    private void Launch(string target, string what)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            if (ShellDesktopLauncher.TryOpen(target)) return;
+            _ = FallbackAsync(target, what);
+            return;
+        }
         try
         {
-            if (OperatingSystem.IsWindows())
-                Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
-            else
-                Process.Start(OperatingSystem.IsMacOS() ? "open" : "xdg-open", target);
+            var psi = new ProcessStartInfo(OperatingSystem.IsMacOS() ? "open" : "xdg-open") { UseShellExecute = false };
+            psi.ArgumentList.Add(target);
+            Process.Start(psi)?.Dispose();
         }
         catch (Exception ex) { AppLog.Warn($"Não foi possível abrir {target}", ex); }
+    }
+
+    private async Task FallbackAsync(string target, string what)
+    {
+        var copied = false;
+        try
+        {
+            var top = _owner() ?? (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Windows.FirstOrDefault();
+            if (top?.Clipboard is { } clipboard)
+            {
+                await clipboard.SetTextAsync(target);
+                copied = true;
+            }
+        }
+        catch (Exception ex) { AppLog.Warn("Não foi possível copiar para a área de transferência", ex); }
+
+        await ShowMessageAsync("Não foi possível abrir",
+            copied
+                ? $"{what} foi copiado para a área de transferência. Cola-o no navegador ou no Explorador de Ficheiros:\n\n{target}"
+                : $"Abre manualmente no navegador ou no Explorador de Ficheiros:\n\n{target}");
     }
 }
